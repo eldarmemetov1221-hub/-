@@ -11,3 +11,7 @@ data/
 # секреты Google — никогда не коммитим
 *service-account*.json
 credentials*.json
+
+# voiceover bot
+voiceover_bot/user_prefs.json
+voiceover_bot/*.mp3
