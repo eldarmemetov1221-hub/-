@@ -17,3 +17,5 @@ voiceover_bot/user_prefs.json
 voiceover_bot/*.mp3
 
 voiceover_bot/voice_samples/
+voiceover_bot/bot.env
+voiceover_bot/venv/

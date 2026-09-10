@@ -1,0 +1,22 @@
+[Unit]
+Description=Voiceover Telegram bot (edge-tts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# User / пути подставляются скриптом install-vps.sh
+User=__USER__
+WorkingDirectory=__DIR__
+EnvironmentFile=__DIR__/bot.env
+ExecStart=__DIR__/venv/bin/python bot.py
+Restart=on-failure
+RestartSec=5
+
+# Защита сайта: бот не съест больше 400 МБ памяти и работает с низким
+# приоритетом CPU, чтобы не мешать сайту на этом же сервере.
+MemoryMax=400M
+CPUWeight=20
+
+[Install]
+WantedBy=multi-user.target

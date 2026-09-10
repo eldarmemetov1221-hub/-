@@ -89,6 +89,42 @@ edge-tts --list-voices
 
 Добавь нужный в `voices.py` — там же примеры.
 
+## 🖥 Запуск на VPS (Ubuntu/Debian, 24/7)
+
+Ставится **только базовый бот** (edge-tts) — лёгкий, не открывает портов, не
+мешает сайту на том же сервере. Работает как служба systemd (автозапуск,
+автоперезапуск, лимит памяти 400 МБ для защиты сайта).
+
+По SSH на сервере:
+
+```bash
+# 1. инструменты
+sudo apt update && sudo apt install -y git python3-venv
+
+# 2. код (ветка с ботом)
+cd ~
+git clone -b claude/festive-euler-ioure0 https://github.com/eldarmemetov1221-hub/-.git voiceover
+cd voiceover/voiceover_bot
+
+# 3. токен (подставь свой)
+echo 'BOT_TOKEN=твой_токен' > bot.env
+
+# 4. установка + запуск как службы
+bash deploy/install-vps.sh
+```
+
+Управление:
+
+```bash
+sudo systemctl status voiceover-bot     # статус
+journalctl -u voiceover-bot -f          # логи в реальном времени
+sudo systemctl restart voiceover-bot    # перезапуск
+sudo systemctl stop voiceover-bot       # остановить
+```
+
+> ⚠️ Клонирование голоса (XTTS) на VPS ставить **не рекомендуется** — оно тяжёлое
+> (2 ГБ модель, много RAM/CPU) и может уронить сайт. Держи клон на своём ПК.
+
 ## Частые вопросы
 
 - **Точно бесплатно?** Да. edge-tts использует публичный сервис озвучки Edge,
