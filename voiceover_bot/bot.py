@@ -61,9 +61,10 @@ BTN_VOICE = "🎙 Голос"
 BTN_CLONE = "🎤 Мой голос"
 BTN_RATE = "⚡ Скорость"
 BTN_PITCH = "🎚 Тон"
+BTN_VIDEO = "🎬 Видео"
 BTN_SETTINGS = "⚙️ Настройки"
 BTN_HELP = "ℹ️ Помощь"
-MENU_BUTTONS = {BTN_VOICE, BTN_CLONE, BTN_RATE, BTN_PITCH, BTN_SETTINGS, BTN_HELP}
+MENU_BUTTONS = {BTN_VOICE, BTN_CLONE, BTN_RATE, BTN_PITCH, BTN_VIDEO, BTN_SETTINGS, BTN_HELP}
 
 RATE_PRESETS = ["-25%", "-10%", "+0%", "+10%", "+25%", "+50%"]
 PITCH_PRESETS = ["-25Hz", "-10Hz", "+0Hz", "+10Hz", "+25Hz"]
@@ -142,7 +143,8 @@ def main_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=BTN_VOICE), KeyboardButton(text=BTN_CLONE)],
             [KeyboardButton(text=BTN_RATE), KeyboardButton(text=BTN_PITCH)],
-            [KeyboardButton(text=BTN_SETTINGS), KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_VIDEO), KeyboardButton(text=BTN_SETTINGS)],
+            [KeyboardButton(text=BTN_HELP)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -312,6 +314,23 @@ async def open_settings(message: Message) -> None:
         f"⚡ Скорость: <b>{p['rate']}</b>\n"
         f"🎚 Тон: <b>{p['pitch']}</b>\n"
         f"🎤 Клон: <b>{'записан' if has_sample(message.from_user.id) else 'нет'}</b>",
+        parse_mode="HTML",
+    )
+
+
+@dp.message(F.text == BTN_VIDEO)
+async def open_video(message: Message) -> None:
+    await message.answer(
+        "🎬 <b>Озвучка видео</b>\n\n"
+        "Просто пришли мне <b>видео</b> (запись экрана), а в <b>подписи</b> к нему "
+        "напиши текст <b>абзацами</b> — один абзац на один вопрос/задание "
+        "(разделяй пустой строкой).\n\n"
+        "Я найду моменты смены вопроса и наложу озвучку по порядку: "
+        "1-й абзац → 1-й вопрос, 2-й → 2-й и т.д.\n\n"
+        "📌 Через бота — видео <b>до 20 МБ</b> (лимит Telegram).\n"
+        "Для больших записей (ПДД на 15–20 мин) используй на компьютере:\n"
+        "<code>python make_video.py запись.mp4 текст.txt</code>\n"
+        "(подробности в README).",
         parse_mode="HTML",
     )
 
