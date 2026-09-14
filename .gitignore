@@ -19,3 +19,5 @@ voiceover_bot/*.mp3
 voiceover_bot/voice_samples/
 voiceover_bot/bot.env
 voiceover_bot/venv/
+voiceover_bot/*.mp4
+voiceover_bot/test_*

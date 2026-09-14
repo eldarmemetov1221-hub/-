@@ -36,6 +36,7 @@ from aiogram.types import (
 
 import cloning
 import mediautil
+import videovoice
 from voices import DEFAULT_VOICE, VOICES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -48,6 +49,9 @@ PREFS_FILE = BASE_DIR / "user_prefs.json"
 SAMPLES_DIR = BASE_DIR / "voice_samples"
 SAMPLES_DIR.mkdir(exist_ok=True)
 MAX_CHARS = 5000
+
+# Telegram позволяет ботам скачивать файлы не больше 20 МБ.
+TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024
 
 CLONE_VOICE_KEY = "my_voice"
 
@@ -196,8 +200,34 @@ HELP_TEXT = (
     "2. <b>🎤 Мой голос</b> — записать образец и озвучивать текст <b>своим</b> голосом (клон).\n"
     "3. <b>⚡ Скорость</b> и <b>🎚 Тон</b> — подстроить звучание (для готовых голосов).\n"
     "4. Просто пришли <b>текст</b> — получишь готовый <b>mp3</b>.\n\n"
+    "🎬 <b>Озвучка видео:</b> пришли <b>видео</b> (до 20 МБ), а в подписи к нему — "
+    "текст <b>абзацами</b> (пустая строка между абзацами = новая сцена). Бот найдёт "
+    "смены сцен и наложит озвучку по порядку: абзац №1 → сцена №1 и т.д.\n"
+    "Для видео крупнее 20 МБ используй скрипт <code>make_video.py</code> на ПК (см. README).\n\n"
     "💡 Для клона запиши <b>чистое</b> голосовое на 15–30 секунд, без шума и музыки."
 )
+
+
+def make_synth(user_id: int):
+    """Возвращает async-функцию text -> mp3(bytes) по настройкам пользователя."""
+    p = get_pref(user_id)
+    if p["voice"] == CLONE_VOICE_KEY and cloning.available() and has_sample(user_id):
+        async def synth(text: str) -> bytes:
+            import tempfile as _t
+            with _t.TemporaryDirectory() as d:
+                wav = os.path.join(d, "c.wav")
+                mp3 = os.path.join(d, "c.mp3")
+                await cloning.synthesize_clone(text, str(sample_path(user_id)), detect_lang(text), wav)
+                mediautil.to_mp3(wav, mp3)
+                return Path(mp3).read_bytes()
+        return synth
+
+    voice = VOICES.get(p["voice"], VOICES[DEFAULT_VOICE])
+
+    async def synth(text: str) -> bytes:
+        return await synthesize_edge(text, voice["id"], p["rate"], p["pitch"])
+
+    return synth
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +404,53 @@ async def on_voice_sample(message: Message) -> None:
         "Первая озвучка может быть медленной (загружается модель), дальше быстрее.",
         parse_mode="HTML",
     )
+
+
+# ---- Озвучка видео по сценам ----
+@dp.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
+async def on_video(message: Message) -> None:
+    media = message.video or message.document
+    caption = (message.caption or "").strip()
+    if not caption:
+        await message.answer(
+            "🎬 Пришли видео <b>с подписью</b> — в подписи напиши текст озвучки "
+            "<b>абзацами</b> (пустая строка = новая сцена).",
+            parse_mode="HTML",
+        )
+        return
+    if media.file_size and media.file_size > TG_DOWNLOAD_LIMIT:
+        mb = media.file_size / 1024 / 1024
+        await message.answer(
+            f"❗️ Видео {mb:.0f} МБ — это больше лимита Telegram для ботов (20 МБ).\n\n"
+            "Для больших видео используй скрипт на компьютере:\n"
+            "<code>python make_video.py видео.mp4 текст.txt</code>\n"
+            "(подробности в README).",
+            parse_mode="HTML",
+        )
+        return
+
+    status = await message.answer("🎬 Скачиваю видео и ищу сцены…")
+    synth = make_synth(message.from_user.id)
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "in.mp4")
+        out = os.path.join(tmp, "out.mp4")
+        try:
+            tg_file = await message.bot.get_file(media.file_id)
+            await message.bot.download_file(tg_file.file_path, destination=src)
+            await status.edit_text("🎬 Накладываю озвучку по сценам…")
+            stats = await videovoice.build_voiced_video(src, caption, synth, out)
+            data = Path(out).read_bytes()
+        except Exception as e:  # noqa: BLE001
+            log.exception("video voiceover failed")
+            await status.edit_text(f"⚠️ Не получилось озвучить видео: {e}")
+            return
+
+    file = BufferedInputFile(data, filename="voiced.mp4")
+    await message.answer_video(
+        video=file,
+        caption=f"🎬 Готово! Сцен: {stats['scenes']}, абзацев: {stats['paragraphs']}",
+    )
+    await status.delete()
 
 
 # ---- Основной обработчик текста ----
