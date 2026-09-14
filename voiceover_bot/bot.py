@@ -36,6 +36,7 @@ from aiogram.types import (
 
 import cloning
 import mediautil
+import smartscenes
 import videovoice
 from voices import DEFAULT_VOICE, VOICES
 
@@ -437,8 +438,10 @@ async def on_video(message: Message) -> None:
         try:
             tg_file = await message.bot.get_file(media.file_id)
             await message.bot.download_file(tg_file.file_path, destination=src)
-            await status.edit_text("🎬 Накладываю озвучку по сценам…")
-            stats = await videovoice.build_voiced_video(src, caption, synth, out)
+            await status.edit_text("🔎 Определяю смену вопросов на экране…")
+            segments = await asyncio.to_thread(smartscenes.detect_changes, src)
+            await status.edit_text(f"🎬 Нашёл {len(segments)} момент(ов), накладываю озвучку…")
+            stats = await videovoice.build_voiced_video(src, caption, synth, out, segment_times=segments)
             data = Path(out).read_bytes()
         except Exception as e:  # noqa: BLE001
             log.exception("video voiceover failed")

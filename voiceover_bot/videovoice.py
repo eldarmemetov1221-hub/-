@@ -88,10 +88,18 @@ async def build_voiced_video(
     synth: SynthFn,
     out_path: str,
     scene_threshold: float = 0.3,
+    segment_times: list[float] | None = None,
 ) -> dict:
-    """Собрать видео с озвучкой по сценам. Возвращает статистику (сцены/абзацы)."""
+    """Собрать видео с озвучкой по сценам. Возвращает статистику (сцены/абзацы).
+
+    Если передан `segment_times` (готовые моменты смены вопроса от умного
+    детектора), используем их. Иначе — обычный поиск склеек ffmpeg.
+    """
     paragraphs = split_paragraphs(text)
-    scenes = await asyncio.to_thread(detect_scenes, video_path, scene_threshold)
+    if segment_times is not None:
+        scenes = sorted(set(segment_times) | {0.0})
+    else:
+        scenes = await asyncio.to_thread(detect_scenes, video_path, scene_threshold)
 
     with tempfile.TemporaryDirectory() as tmp:
         clips: list[tuple[str, float]] = []
