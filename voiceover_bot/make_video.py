@@ -54,7 +54,10 @@ async def main() -> None:
     ap.add_argument("video", help="исходное видео (любой размер)")
     ap.add_argument("script", help=".txt с текстом (абзацы = сцены)")
     ap.add_argument("output", nargs="?", default=None, help="итоговый файл (по умолчанию <видео>_voiced.mp4)")
-    ap.add_argument("--voice", default="ru-RU-DmitryNeural", help="голос edge-tts")
+    ap.add_argument("--engine", choices=["edge", "silero"], default="edge",
+                    help="движок озвучки: edge (онлайн Microsoft) или silero (офлайн, если edge блокируется)")
+    ap.add_argument("--voice", default="ru-RU-DmitryNeural",
+                    help="голос: для edge — ru-RU-DmitryNeural; для silero — eugene/aidar (муж.)")
     ap.add_argument("--rate", default="+0%", help="скорость, напр. +10%%")
     ap.add_argument("--pitch", default="+0Hz", help="тон, напр. -10Hz")
     ap.add_argument("--threshold", type=float, default=0.03,
@@ -89,10 +92,21 @@ async def main() -> None:
         print("👁 Предпросмотр — озвучка не создавалась. Подбери --threshold и запусти без --preview.")
         return
 
-    print("⏳ Накладываю озвучку…")
+    print(f"⏳ Накладываю озвучку (движок: {args.engine})…")
 
-    async def synth(t: str) -> bytes:
-        return await synth_edge(t, args.voice, args.rate, args.pitch)
+    if args.engine == "silero":
+        import silero_tts
+        if not silero_tts.available():
+            print("❌ Для silero нужен torch и soundfile. Установи: pip install soundfile")
+            return
+        speaker = args.voice if args.voice in silero_tts.SPEAKERS else silero_tts.MALE_DEFAULT
+        print(f"   Голос Silero: {speaker} (первый запуск скачает модель ~50 МБ)")
+
+        async def synth(t: str) -> bytes:
+            return await asyncio.to_thread(silero_tts.synth, t, speaker)
+    else:
+        async def synth(t: str) -> bytes:
+            return await synth_edge(t, args.voice, args.rate, args.pitch)
 
     stats = await videovoice.build_voiced_video(
         str(video), text, synth, str(out), segment_times=segments,
