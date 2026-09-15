@@ -19,6 +19,25 @@ import smartscenes
 import videovoice
 
 
+def read_text_any(path: str) -> str:
+    """Читает .txt в любой распространённой кодировке (UTF-8/16, Windows-1251).
+
+    UTF-16 определяем только по метке BOM (иначе он декодирует что угодно в
+    мусор), затем строгий UTF-8, затем cp1251 (обычный ANSI-Блокнот).
+    """
+    raw = Path(path).read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        return raw.decode("utf-16")  # сам уберёт метку BOM
+    for enc in ("utf-8", "cp1251", "cp1252"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 async def synth_edge(text: str, voice: str, rate: str, pitch: str) -> bytes:
     c = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
@@ -52,7 +71,7 @@ async def main() -> None:
 
     video = Path(args.video)
     out = Path(args.output) if args.output else video.with_name(video.stem + "_voiced.mp4")
-    text = Path(args.script).read_text(encoding="utf-8")
+    text = read_text_any(args.script)
 
     print(f"🎬 Видео: {video}\n📝 Текст: {args.script}\n🎙 Голос: {args.voice}")
     print("🔎 Определяю смену вопросов на экране…")
