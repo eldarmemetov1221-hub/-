@@ -117,6 +117,8 @@ async def main() -> None:
                          "если текста больше; вырезает простой, если меньше; хранит зелёный ответ")
     ap.add_argument("--pad", type=float, default=1.2,
                     help="пауза после озвучки в секундах")
+    ap.add_argument("--no-auto-count", dest="auto_count", action="store_false",
+                    help="не привязываться к числу абзацев, искать смены по порогу")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -124,11 +126,17 @@ async def main() -> None:
     text = read_text_any(args.script)
 
     print(f"🎬 Видео: {video}\n📝 Текст: {args.script}\n🎙 Голос: {args.voice}")
-    print("🔎 Определяю смену вопросов на экране…")
-    segments = smartscenes.detect_changes(
-        str(video), interval=args.interval, threshold=args.threshold, min_gap=args.min_gap
-    )
     paras = videovoice.split_paragraphs(text)
+    print("🔎 Определяю смену вопросов на экране…")
+    if args.auto_count:
+        # Знаем число вопросов (= число абзацев): берём столько же самых сильных смен.
+        segments = smartscenes.detect_n_changes(
+            str(video), len(paras), interval=args.interval, min_gap=args.min_gap
+        )
+    else:
+        segments = smartscenes.detect_changes(
+            str(video), interval=args.interval, threshold=args.threshold, min_gap=args.min_gap
+        )
     print(f"   OCR (чтение номера вопроса): {'да' if smartscenes.ocr_available() else 'нет (по разнице кадров)'}")
     print(f"   Найдено моментов: {len(segments)} | абзацев в тексте: {len(paras)}")
     print("   Моменты (сек):", ", ".join(f"{t:.0f}" for t in segments))

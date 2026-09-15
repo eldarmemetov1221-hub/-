@@ -113,3 +113,40 @@ def detect_changes(
                     last_kept = t
             prev = arr
         return boundaries
+
+
+def _scored_changes(video_path: str, interval: float, pixel_delta: int) -> list[tuple[float, float]]:
+    """Для каждого момента — насколько сильно изменился кадр (доля пикселей)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        frames = _extract_frames(video_path, tmp, interval)
+        scores = []
+        prev = None
+        for t, path in frames:
+            arr = np.asarray(Image.open(path), dtype=np.int16)
+            if prev is not None and t > 0:
+                scores.append((t, float(np.mean(np.abs(arr - prev) > pixel_delta))))
+            prev = arr
+        return scores
+
+
+def detect_n_changes(video_path: str, n: int, interval: float = 1.0,
+                     min_gap: float = 6.0, pixel_delta: int = 30) -> list[float]:
+    """Найти ровно `n` сцен: берём `n-1` САМЫХ СИЛЬНЫХ смен картинки (полная
+    смена вопроса меняет весь экран сильнее, чем подсветка зелёного ответа),
+    разнесённых не ближе min_gap. Плюс старт 0.0.
+
+    Так число сцен = числу вопросов (абзацев), а мелкие изменения внутри вопроса
+    (подсветка ответа) игнорируются.
+    """
+    if n <= 1:
+        return [0.0]
+    scores = _scored_changes(video_path, interval, pixel_delta)
+    picked: list[float] = []
+    for t, frac in sorted(scores, key=lambda x: -x[1]):
+        if frac < 0.008:
+            break
+        if all(abs(t - p) >= min_gap for p in picked):
+            picked.append(t)
+        if len(picked) >= n - 1:
+            break
+    return sorted([0.0] + picked)
