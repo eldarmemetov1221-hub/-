@@ -115,7 +115,7 @@ def _assemble_trim(video_path: str, segments: list[tuple[float, float]],
     args += [
         "-filter_complex", ";".join(filt),
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
         out_path,
     ]
@@ -168,7 +168,7 @@ def _assemble_smart(video_path: str, segs: list[dict],
     args += [
         "-filter_complex", ";".join(filt),
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
         out_path,
     ]

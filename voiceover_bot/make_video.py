@@ -10,6 +10,7 @@
 
 import argparse
 import asyncio
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -17,6 +18,8 @@ import edge_tts
 
 import smartscenes
 import videovoice
+
+CACHE_DIR = Path(__file__).parent / ".tts_cache"
 
 
 def read_text_any(path: str) -> str:
@@ -38,15 +41,52 @@ def read_text_any(path: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-async def synth_edge(text: str, voice: str, rate: str, pitch: str) -> bytes:
-    c = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        path = tmp.name
-    try:
-        await c.save(path)
-        return Path(path).read_bytes()
-    finally:
-        Path(path).unlink(missing_ok=True)
+async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int = 4) -> bytes:
+    last = None
+    for attempt in range(retries):
+        try:
+            c = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                path = tmp.name
+            try:
+                await c.save(path)
+                data = Path(path).read_bytes()
+                if data:
+                    return data
+                raise RuntimeError("пустой ответ")
+            finally:
+                Path(path).unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001 — сеть/таймаут/NoAudio: повторяем
+            last = e
+            if attempt < retries - 1:
+                print(f"      ⚠️ сеть моргнула ({type(e).__name__}), повтор {attempt + 2}/{retries}…")
+                await asyncio.sleep(2 * (attempt + 1))
+    raise last
+
+
+def _cache_key(engine: str, voice: str, rate: str, pitch: str, text: str) -> str:
+    raw = f"{engine}|{voice}|{rate}|{pitch}|{text}".encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
+
+
+def make_cached_synth(base_synth, engine, voice, rate, pitch, total):
+    """Оборачивает синтез в кэш: озвученные куски сохраняются на диск и при
+    повторном/упавшем запуске берутся готовыми (не переозвучиваются)."""
+    CACHE_DIR.mkdir(exist_ok=True)
+    counter = {"n": 0}
+
+    async def synth(text: str) -> bytes:
+        counter["n"] += 1
+        f = CACHE_DIR / (_cache_key(engine, voice, rate, pitch, text) + ".audio")
+        if f.exists() and f.stat().st_size > 0:
+            print(f"   🎙 {counter['n']}/{total} (из кэша)")
+            return f.read_bytes()
+        print(f"   🎙 {counter['n']}/{total} озвучиваю…")
+        data = await base_synth(text)
+        f.write_bytes(data)
+        return data
+
+    return synth
 
 
 async def main() -> None:
@@ -109,11 +149,13 @@ async def main() -> None:
         speaker = args.voice if args.voice in silero_tts.SPEAKERS else silero_tts.MALE_DEFAULT
         print(f"   Голос Silero: {speaker} (первый запуск скачает модель ~50 МБ)")
 
-        async def synth(t: str) -> bytes:
+        async def base_synth(t: str) -> bytes:
             return await asyncio.to_thread(silero_tts.synth, t, speaker)
     else:
-        async def synth(t: str) -> bytes:
+        async def base_synth(t: str) -> bytes:
             return await synth_edge(t, args.voice, args.rate, args.pitch)
+
+    synth = make_cached_synth(base_synth, args.engine, args.voice, args.rate, args.pitch, len(paras))
 
     if args.smart:
         print("   🧠 Умный режим (естественный темп, удлинение/обрезка сцен, видео пересжимается)")

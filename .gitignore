@@ -21,3 +21,4 @@ voiceover_bot/bot.env
 voiceover_bot/venv/
 voiceover_bot/*.mp4
 voiceover_bot/test_*
+voiceover_bot/.tts_cache/
