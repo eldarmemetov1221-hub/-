@@ -72,8 +72,11 @@ async def main() -> None:
                     help="не ускорять под тайминг сцены (читать в обычном темпе)")
     ap.add_argument("--trim", action="store_true",
                     help="вырезать мёртвые паузы: держать вопрос только пока идёт озвучка + пауза")
+    ap.add_argument("--smart", action="store_true",
+                    help="умный режим: естественный темп; удлиняет сцену (заморозка кадра), "
+                         "если текста больше; вырезает простой, если меньше; хранит зелёный ответ")
     ap.add_argument("--pad", type=float, default=1.2,
-                    help="сколько секунд оставлять после озвучки перед вырезкой (с --trim)")
+                    help="пауза после озвучки в секундах")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -111,6 +114,16 @@ async def main() -> None:
     else:
         async def synth(t: str) -> bytes:
             return await synth_edge(t, args.voice, args.rate, args.pitch)
+
+    if args.smart:
+        print("   🧠 Умный режим (естественный темп, удлинение/обрезка сцен, видео пересжимается)")
+        stats = await videovoice.build_smart_video(
+            str(video), text, synth, str(out), segment_times=segments, pad=min(args.pad, 1.0),
+        )
+        print(f"✅ Готово: {out}")
+        print(f"   Сцен: {stats['scenes']}, абзацев: {stats['paragraphs']}, "
+              f"удлинено (заморозка): {stats['extended']}, обрезано (простой): {stats['trimmed']}")
+        return
 
     if args.trim:
         print("   ✂️ Режим обрезки пауз включён (видео пересжимается, это дольше)")
