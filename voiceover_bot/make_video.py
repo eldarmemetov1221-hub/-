@@ -44,6 +44,10 @@ async def main() -> None:
     ap.add_argument("--min-gap", type=float, default=2.0, help="мин. пауза между вопросами, сек")
     ap.add_argument("--preview", action="store_true",
                     help="только показать найденные моменты, без озвучки")
+    ap.add_argument("--max-tempo", type=float, default=1.6,
+                    help="макс. ускорение голоса, чтобы влезть в сцену (1.6 = до +60%)")
+    ap.add_argument("--no-fit", action="store_true",
+                    help="не ускорять под тайминг сцены (читать в обычном темпе)")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -72,10 +76,12 @@ async def main() -> None:
         return await synth_edge(t, args.voice, args.rate, args.pitch)
 
     stats = await videovoice.build_voiced_video(
-        str(video), text, synth, str(out), segment_times=segments
+        str(video), text, synth, str(out), segment_times=segments,
+        fit_to_scenes=not args.no_fit, max_tempo=args.max_tempo,
     )
     print(f"✅ Готово: {out}")
-    print(f"   Сцен: {stats['scenes']}, абзацев озвучено: {stats['paragraphs']}")
+    print(f"   Сцен: {stats['scenes']}, абзацев озвучено: {stats['paragraphs']}, "
+          f"ускорено под тайминг: {stats['speedups']}")
 
 
 if __name__ == "__main__":

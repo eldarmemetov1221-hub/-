@@ -57,6 +57,16 @@ def split_paragraphs(text: str) -> list[str]:
     return parts or [text.strip()]
 
 
+def apply_tempo(src: str, dst: str, tempo: float) -> None:
+    """Ускорить/замедлить аудио без изменения тона (ffmpeg atempo, 0.5–2.0)."""
+    tempo = max(0.5, min(2.0, tempo))
+    subprocess.run(
+        [_ffmpeg(), "-hide_banner", "-y", "-i", src,
+         "-filter:a", f"atempo={tempo:.4f}", "-b:a", "192k", dst],
+        capture_output=True,
+    )
+
+
 def _assemble(video_path: str, clips: list[tuple[str, float]], out_path: str) -> None:
     """Склеить видео с аудиодорожкой, где каждый клип начинается в своё время."""
     args = [_ffmpeg(), "-hide_banner", "-y", "-i", video_path]
@@ -89,17 +99,26 @@ async def build_voiced_video(
     out_path: str,
     scene_threshold: float = 0.3,
     segment_times: list[float] | None = None,
+    fit_to_scenes: bool = True,
+    max_tempo: float = 1.6,
 ) -> dict:
     """Собрать видео с озвучкой по сценам. Возвращает статистику (сцены/абзацы).
 
     Если передан `segment_times` (готовые моменты смены вопроса от умного
     детектора), используем их. Иначе — обычный поиск склеек ffmpeg.
+
+    `fit_to_scenes` — вписывать озвучку в длину каждой сцены: если голос не
+    успевает, ускоряем ровно настолько, чтобы попасть в тайминг (до `max_tempo`).
+    Так короткие вопросы читаются бодрее, длинные — спокойнее.
     """
     paragraphs = split_paragraphs(text)
     if segment_times is not None:
         scenes = sorted(set(segment_times) | {0.0})
     else:
         scenes = await asyncio.to_thread(detect_scenes, video_path, scene_threshold)
+
+    video_dur = await asyncio.to_thread(media_duration, video_path)
+    speedups = 0
 
     with tempfile.TemporaryDirectory() as tmp:
         clips: list[tuple[str, float]] = []
@@ -109,11 +128,29 @@ async def build_voiced_video(
             clip = os.path.join(tmp, f"p{i}.mp3")
             Path(clip).write_bytes(data)
             dur = await asyncio.to_thread(media_duration, clip)
-            anchor = scenes[i] if i < len(scenes) else prev_end
-            start = max(anchor, prev_end)  # не даём абзацам наезжать друг на друга
+
+            # Слот сцены = сколько секунд этот вопрос на экране.
+            if i < len(scenes):
+                start = scenes[i]
+                nxt = scenes[i + 1] if i + 1 < len(scenes) else video_dur
+                slot = nxt - scenes[i]
+            else:
+                start, slot = prev_end, None
+
+            # Не успеваем в слот -> ускоряем ровно под тайминг.
+            if fit_to_scenes and slot and slot > 0.3 and dur > slot:
+                tempo = min(dur / slot, max_tempo)
+                if tempo > 1.01:
+                    fitted = os.path.join(tmp, f"f{i}.mp3")
+                    await asyncio.to_thread(apply_tempo, clip, fitted, tempo)
+                    clip = fitted
+                    dur = dur / tempo
+                    speedups += 1
+
+            start = max(start, prev_end)  # страховка от наложения
             clips.append((clip, start))
             prev_end = start + dur
 
         await asyncio.to_thread(_assemble, video_path, clips, out_path)
 
-    return {"scenes": len(scenes), "paragraphs": len(paragraphs)}
+    return {"scenes": len(scenes), "paragraphs": len(paragraphs), "speedups": speedups}
