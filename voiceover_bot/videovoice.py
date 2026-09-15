@@ -255,16 +255,17 @@ async def build_voiced_video(
     segment_times: list[float] | None = None,
     fit_to_scenes: bool = True,
     max_tempo: float = 1.6,
+    min_tempo: float = 0.9,
     trim_idle: bool = False,
     pad: float = 1.2,
     min_keep: float = 1.5,
 ) -> dict:
     """Собрать видео с озвучкой по сценам. Возвращает статистику.
 
-    `fit_to_scenes` — если голос не успевает в сцену, ускоряем под тайминг.
-    `trim_idle` — вырезать «мёртвые» паузы: держим вопрос на экране только пока
-    идёт озвучка + `pad` секунд, лишнее ожидание убираем. Тогда голос читается
-    в естественном темпе, а видео становится короче.
+    `fit_to_scenes` — подгонять темп речи под длину сцены: где текста много —
+    ускоряем (до `max_tempo`), где мало — слегка замедляем (до `min_tempo`),
+    чтобы попадать в тайминг каждой сцены.
+    `trim_idle` — вырезать «мёртвые» паузы (голос в обычном темпе, видео короче).
     """
     paragraphs = split_paragraphs(text)
     if segment_times is not None:
@@ -274,6 +275,7 @@ async def build_voiced_video(
 
     video_dur = await asyncio.to_thread(media_duration, video_path)
     speedups = 0
+    slowdowns = 0
 
     with tempfile.TemporaryDirectory() as tmp:
         clips: list[tuple[str, float]] = []
@@ -304,14 +306,23 @@ async def build_voiced_video(
                 clips.append((clip, prev_end))
                 prev_end += keep
             else:
-                # Обычный режим: озвучка привязана к моменту сцены.
+                # Обычный режим: озвучка привязана к моменту сцены, подгоняем темп
+                # под длину сцены — где длинно, ускоряем; где коротко, слегка
+                # замедляем, чтобы заполнить сцену (не быстрее max_tempo и не
+                # медленнее min_tempo, иначе звучит неестественно).
                 start = s_start if slot else prev_end
-                if fit_to_scenes and slot and slot > 0.3 and dur > slot:
-                    tempo = min(dur / slot, max_tempo)
-                    if tempo > 1.01:
+                if fit_to_scenes and slot and slot > 0.4:
+                    target = slot - min(0.4, slot * 0.15)  # оставим капельку паузы
+                    tempo = dur / target if target > 0.3 else 1.0
+                    tempo = max(min_tempo, min(max_tempo, tempo))
+                    if abs(tempo - 1.0) > 0.02:
                         fitted = os.path.join(tmp, f"f{i}.mp3")
                         await asyncio.to_thread(apply_tempo, clip, fitted, tempo)
-                        clip, dur, speedups = fitted, dur / tempo, speedups + 1
+                        clip, dur = fitted, dur / tempo
+                        if tempo > 1:
+                            speedups += 1
+                        else:
+                            slowdowns += 1
                 start = max(start, prev_end)
                 clips.append((clip, start))
                 prev_end = start + dur
@@ -322,4 +333,5 @@ async def build_voiced_video(
             await asyncio.to_thread(_assemble, video_path, clips, out_path)
 
     return {"scenes": len(scenes), "paragraphs": len(paragraphs),
-            "speedups": speedups, "trimmed": bool(trim_idle and segments)}
+            "speedups": speedups, "slowdowns": slowdowns,
+            "trimmed": bool(trim_idle and segments)}

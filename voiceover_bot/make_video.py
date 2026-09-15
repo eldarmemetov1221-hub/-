@@ -41,6 +41,32 @@ def read_text_any(path: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def parse_timings(raw: str) -> list[float]:
+    """Разбирает тайминги: строки вида 0:00, 1:12, 2:05 или просто секунды 37.
+    Можно несколько в строке через пробел/запятую. Возвращает секунды со стартом 0."""
+    import re
+    times = []
+    for tok in re.split(r"[\s,;]+", raw.strip()):
+        if not tok:
+            continue
+        if ":" in tok:
+            parts = tok.split(":")
+            try:
+                nums = [float(p) for p in parts]
+            except ValueError:
+                continue
+            sec = 0.0
+            for p in nums:
+                sec = sec * 60 + p
+            times.append(sec)
+        else:
+            try:
+                times.append(float(tok))
+            except ValueError:
+                continue
+    return sorted(set(times) | {0.0})
+
+
 async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int = 4) -> bytes:
     last = None
     for attempt in range(retries):
@@ -123,6 +149,8 @@ async def main() -> None:
                     help="верхняя граница области вопроса (доля высоты), чтобы не ловить шапку")
     ap.add_argument("--region-bottom", type=float, default=0.66,
                     help="нижняя граница области вопроса (доля высоты), чтобы не ловить кнопки ответов")
+    ap.add_argument("--timings", default=None,
+                    help="файл с временами начала сцен (по строке: 0:00, 0:37, 1:12 …) — 100% точно, без авто-детекта")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -131,8 +159,10 @@ async def main() -> None:
 
     print(f"🎬 Видео: {video}\n📝 Текст: {args.script}\n🎙 Голос: {args.voice}")
     paras = videovoice.split_paragraphs(text)
-    print("🔎 Определяю смену вопросов на экране…")
-    if smartscenes.ocr_available():
+    if args.timings:
+        segments = parse_timings(read_text_any(args.timings))
+        print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен")
+    elif smartscenes.ocr_available():
         # Лучший способ: читаем номер «Вопрос N» на экране (подсветка ответа не мешает).
         print("   📖 OCR доступен — читаю номер вопроса на экране")
         segments = smartscenes.detect_by_ocr(str(video), interval=max(args.interval, 2.0), min_gap=4.0)
@@ -212,8 +242,9 @@ async def main() -> None:
         trim_idle=args.trim, pad=args.pad,
     )
     print(f"✅ Готово: {out}")
-    print(f"   Сцен: {stats['scenes']}, абзацев озвучено: {stats['paragraphs']}, "
-          f"ускорено под тайминг: {stats['speedups']}, обрезка пауз: {'да' if stats['trimmed'] else 'нет'}")
+    print(f"   Сцен: {stats['scenes']}, абзацев: {stats['paragraphs']}, "
+          f"ускорено: {stats['speedups']}, замедлено: {stats.get('slowdowns', 0)}, "
+          f"обрезка пауз: {'да' if stats['trimmed'] else 'нет'}")
 
 
 if __name__ == "__main__":
