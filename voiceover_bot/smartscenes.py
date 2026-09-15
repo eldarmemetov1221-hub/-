@@ -64,7 +64,20 @@ def _setup_tesseract() -> None:
             return
 
 
-def ocr_available() -> bool:
+_easyocr_reader = None
+
+
+def _easyocr():
+    """Ленивая инициализация EasyOCR (ставится через pip, использует torch,
+    отдельная программа не нужна)."""
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(["ru"], gpu=False, verbose=False)
+    return _easyocr_reader
+
+
+def _has_tesseract() -> bool:
     try:
         import pytesseract
         _setup_tesseract()
@@ -74,14 +87,35 @@ def ocr_available() -> bool:
         return False
 
 
+def _has_easyocr() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("easyocr") is not None
+
+
+def ocr_available() -> bool:
+    return _has_tesseract() or _has_easyocr()
+
+
+def _ocr_text(png_path: str) -> str:
+    """Текст с кадра — через Tesseract или EasyOCR (что установлено)."""
+    if _has_tesseract():
+        try:
+            import pytesseract
+            return pytesseract.image_to_string(Image.open(png_path), lang="rus+eng")
+        except Exception:
+            pass
+    if _has_easyocr():
+        try:
+            return " ".join(_easyocr().readtext(png_path, detail=0))
+        except Exception:
+            pass
+    return ""
+
+
 def _ocr_number(png_path: str) -> int | None:
-    """Читает номер вопроса на кадре: ищет «Вопрос N» (нужен русский язык OCR)."""
-    try:
-        import pytesseract
-        txt = pytesseract.image_to_string(Image.open(png_path), lang="rus+eng")
-    except Exception:
-        return None
-    m = re.search(r"вопрос\D{0,4}(\d{1,2})", txt.lower())
+    """Читает номер вопроса на кадре: ищет «Вопрос N»."""
+    txt = _ocr_text(png_path).lower()
+    m = re.search(r"вопрос\W{0,4}(\d{1,2})", txt)
     if m:
         return int(m.group(1))
     return None
@@ -95,7 +129,7 @@ def detect_by_ocr(video_path: str, interval: float = 2.0, min_gap: float = 4.0) 
     """
     _setup_tesseract()
     with tempfile.TemporaryDirectory() as tmp:
-        frames = _extract_frames(video_path, tmp, interval, scale="720:-1", gray=True)
+        frames = _extract_frames(video_path, tmp, interval, scale="720:-1", gray=False)
         seen: dict[int, float] = {}
         for t, path in frames:
             num = _ocr_number(path)
