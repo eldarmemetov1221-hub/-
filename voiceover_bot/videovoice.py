@@ -124,62 +124,75 @@ def _assemble_trim(video_path: str, segments: list[tuple[float, float]],
         raise RuntimeError(proc.stderr[-1500:] or "ffmpeg не смог собрать видео")
 
 
-def _assemble_smart(video_path: str, segs: list[dict], out_path: str) -> None:
-    """Умная сборка с жёсткой привязкой звука к своей сцене.
+def _build_clip(video_path: str, seg: dict, out_clip: str) -> None:
+    """Собрать ОДИН вопрос в самостоятельный ролик ровно на seg_len: видео
+    (куски + заморозка) и звук (озвучка + тишина) обрезаны по -t на одну длину.
+    Внутри такого ролика звук уехать не может. Перемотка (-ss/-to) — быстро."""
+    sl = seg["seg_len"]
+    pieces = seg["pieces"]
+    freeze = seg.get("freeze", 0.0)
 
-    Каждая сцена приводится РОВНО к длине seg_len и по видео, и по звуку
-    (озвучка + тишина). И видео, и аудио собираются как конкатенация этих
-    равнодлинных кусков в одном порядке — поэтому звук вопроса физически не
-    может заехать на следующий (никакого накопительного сдвига).
-    seg["pieces"] — куски исходника (start,end); seg["freeze"] — заморозка
-    последнего кадра; seg["seg_len"] — итоговая длина; seg["narr"] — файл озвучки.
-    """
-    args = [_ffmpeg(), "-hide_banner", "-y", "-i", video_path]
-    for seg in segs:
-        args += ["-i", seg["narr"]]
+    args = [_ffmpeg(), "-hide_banner", "-y"]
+    for (s, e) in pieces:
+        args += ["-ss", f"{s:.3f}", "-to", f"{e:.3f}", "-i", video_path]
+    narr_idx = len(pieces)
+    args += ["-i", seg["narr"]]
 
-    filt = []
-    n = 0
-    vlabels, alabels = [], []
-    for i, seg in enumerate(segs):
-        sl = seg["seg_len"]
-        pieces = seg["pieces"]
-        freeze = seg.get("freeze", 0.0)
-        if len(pieces) == 1:
-            s, e = pieces[0]
-            filt.append(
-                f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS,"
-                f"tpad=stop_mode=clone:stop_duration={freeze + 0.3:.3f},"
-                f"trim=0:{sl:.3f},setpts=PTS-STARTPTS[v{i}]"
-            )
-        else:
-            subs = []
-            for (s, e) in pieces:
-                filt.append(f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS[p{n}]")
-                subs.append(f"[p{n}]"); n += 1
-            filt.append(
-                f"{''.join(subs)}concat=n={len(subs)}:v=1,"
-                f"tpad=stop_mode=clone:stop_duration=0.3,"
-                f"trim=0:{sl:.3f},setpts=PTS-STARTPTS[v{i}]"
-            )
-        vlabels.append(f"[v{i}]")
-        # Звук: озвучка с начала сцены + тишина до конца сцены, ровно seg_len.
-        filt.append(f"[{i + 1}:a]apad,atrim=0:{sl:.3f},asetpts=N/SR/TB[a{i}]")
-        alabels.append(f"[a{i}]")
+    if len(pieces) == 1:
+        vchain = ("[0:v]setpts=PTS-STARTPTS,"
+                  f"tpad=stop_mode=clone:stop_duration={freeze + 0.5:.3f},fps=30[v]")
+    else:
+        parts = []
+        subs = []
+        for j in range(len(pieces)):
+            parts.append(f"[{j}:v]setpts=PTS-STARTPTS[q{j}]")
+            subs.append(f"[q{j}]")
+        parts.append(f"{''.join(subs)}concat=n={len(pieces)}:v=1,"
+                     f"tpad=stop_mode=clone:stop_duration=0.5,fps=30[v]")
+        vchain = ";".join(parts)
 
-    filt.append(f"{''.join(vlabels)}concat=n={len(segs)}:v=1[vout]")
-    filt.append(f"{''.join(alabels)}concat=n={len(segs)}:v=0:a=1[aout]")
-
+    fc = f"{vchain};[{narr_idx}:a]apad[a]"
     args += [
-        "-filter_complex", ";".join(filt),
-        "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
-        out_path,
+        "-filter_complex", fc,
+        "-map", "[v]", "-map", "[a]",
+        "-t", f"{sl:.3f}", "-r", "30",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+        out_clip,
     ]
     proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if proc.returncode != 0 or not os.path.exists(out_path):
-        raise RuntimeError(proc.stderr[-1500:] or "ffmpeg не смог собрать видео")
+    if proc.returncode != 0 or not os.path.exists(out_clip):
+        raise RuntimeError(proc.stderr[-1500:] or "ffmpeg не смог собрать кусок")
+
+
+def _assemble_smart(video_path: str, segs: list[dict], out_path: str) -> None:
+    """Собрать каждый вопрос отдельным роликом и склеить их встык (concat
+    demuxer, -c copy). Звук каждого вопроса заперт в своём ролике и не может
+    заехать на следующий."""
+    import shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        lines = []
+        for i, seg in enumerate(segs):
+            clip = os.path.join(tmp, f"c{i:03d}.mp4")
+            _build_clip(video_path, seg, clip)
+            lines.append(f"file '{clip}'")
+        listf = os.path.join(tmp, "list.txt")
+        Path(listf).write_text("\n".join(lines), encoding="utf-8")
+
+        args = [_ffmpeg(), "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                "-i", listf, "-c", "copy", "-movflags", "+faststart", out_path]
+        proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            # запасной путь: пересобрать склейку с перекодированием
+            args = [_ffmpeg(), "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                    "-i", listf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_path]
+            proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if proc.returncode != 0 or not os.path.exists(out_path):
+                raise RuntimeError(proc.stderr[-1500:] or "ffmpeg не смог склеить ролики")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 async def build_smart_video(
