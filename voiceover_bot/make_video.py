@@ -119,6 +119,10 @@ async def main() -> None:
                     help="пауза после озвучки в секундах")
     ap.add_argument("--no-auto-count", dest="auto_count", action="store_false",
                     help="не привязываться к числу абзацев, искать смены по порогу")
+    ap.add_argument("--region-top", type=float, default=0.28,
+                    help="верхняя граница области вопроса (доля высоты), чтобы не ловить шапку")
+    ap.add_argument("--region-bottom", type=float, default=0.66,
+                    help="нижняя граница области вопроса (доля высоты), чтобы не ловить кнопки ответов")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -136,9 +140,12 @@ async def main() -> None:
             print(f"   ⚠️ OCR нашёл мало вопросов ({len(segments)}) — откатываюсь на разницу кадров")
             segments = smartscenes.detect_n_changes(str(video), len(paras), interval=args.interval, min_gap=args.min_gap)
     elif args.auto_count:
-        # Знаем число вопросов (= число абзацев): берём столько же самых сильных смен.
+        # Знаем число вопросов (= число абзацев): берём столько же самых сильных
+        # смен ОБЛАСТИ ВОПРОСА (без нижних кнопок ответов).
+        print("   🎯 Ищу 20 самых сильных смен в области вопроса (подсветка ответа игнорируется)")
         segments = smartscenes.detect_n_changes(
-            str(video), len(paras), interval=args.interval, min_gap=args.min_gap
+            str(video), len(paras), interval=args.interval, min_gap=args.min_gap,
+            y0=args.region_top, y1=args.region_bottom,
         )
     else:
         segments = smartscenes.detect_changes(

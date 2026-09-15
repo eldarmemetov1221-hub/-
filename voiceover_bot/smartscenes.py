@@ -162,14 +162,25 @@ def detect_changes(
         return boundaries
 
 
-def _scored_changes(video_path: str, interval: float, pixel_delta: int) -> list[tuple[float, float]]:
-    """Для каждого момента — насколько сильно изменился кадр (доля пикселей)."""
+def _load_region(path: str, y0: float, y1: float) -> "np.ndarray":
+    """Грузит кадр и обрезает по вертикали к области вопроса (без верхней шапки
+    и без нижних кнопок ответов, где загорается зелёный)."""
+    arr = np.asarray(Image.open(path), dtype=np.int16)
+    h = arr.shape[0]
+    return arr[int(h * y0):int(h * y1), :]
+
+
+def _scored_changes(video_path: str, interval: float, pixel_delta: int,
+                    y0: float = 0.28, y1: float = 0.66) -> list[tuple[float, float]]:
+    """Для каждого момента — насколько изменилась ОБЛАСТЬ ВОПРОСА (картинка +
+    текст вопроса). Нижние кнопки ответов в расчёт не берём — поэтому подсветка
+    ответа не считается сменой вопроса."""
     with tempfile.TemporaryDirectory() as tmp:
         frames = _extract_frames(video_path, tmp, interval)
         scores = []
         prev = None
         for t, path in frames:
-            arr = np.asarray(Image.open(path), dtype=np.int16)
+            arr = _load_region(path, y0, y1)
             if prev is not None and t > 0:
                 scores.append((t, float(np.mean(np.abs(arr - prev) > pixel_delta))))
             prev = arr
@@ -177,17 +188,17 @@ def _scored_changes(video_path: str, interval: float, pixel_delta: int) -> list[
 
 
 def detect_n_changes(video_path: str, n: int, interval: float = 1.0,
-                     min_gap: float = 6.0, pixel_delta: int = 30) -> list[float]:
-    """Найти ровно `n` сцен: берём `n-1` САМЫХ СИЛЬНЫХ смен картинки (полная
-    смена вопроса меняет весь экран сильнее, чем подсветка зелёного ответа),
-    разнесённых не ближе min_gap. Плюс старт 0.0.
+                     min_gap: float = 6.0, pixel_delta: int = 30,
+                     y0: float = 0.28, y1: float = 0.66) -> list[float]:
+    """Найти ровно `n` сцен: берём `n-1` САМЫХ СИЛЬНЫХ смен ОБЛАСТИ ВОПРОСА
+    (картинка + текст вопроса), разнесённых не ближе min_gap. Плюс старт 0.0.
 
-    Так число сцен = числу вопросов (абзацев), а мелкие изменения внутри вопроса
-    (подсветка ответа) игнорируются.
+    Нижние кнопки ответов в область не входят, поэтому подсветка зелёного ответа
+    не считается новым вопросом. `y0`/`y1` — границы области по высоте (доли).
     """
     if n <= 1:
         return [0.0]
-    scores = _scored_changes(video_path, interval, pixel_delta)
+    scores = _scored_changes(video_path, interval, pixel_delta, y0, y1)
     picked: list[float] = []
     for t, frac in sorted(scores, key=lambda x: -x[1]):
         if frac < 0.008:
