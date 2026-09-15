@@ -70,6 +70,10 @@ async def main() -> None:
                     help="макс. ускорение голоса, чтобы влезть в сцену (1.6 = до +60%)")
     ap.add_argument("--no-fit", action="store_true",
                     help="не ускорять под тайминг сцены (читать в обычном темпе)")
+    ap.add_argument("--trim", action="store_true",
+                    help="вырезать мёртвые паузы: держать вопрос только пока идёт озвучка + пауза")
+    ap.add_argument("--pad", type=float, default=1.2,
+                    help="сколько секунд оставлять после озвучки перед вырезкой (с --trim)")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -108,13 +112,16 @@ async def main() -> None:
         async def synth(t: str) -> bytes:
             return await synth_edge(t, args.voice, args.rate, args.pitch)
 
+    if args.trim:
+        print("   ✂️ Режим обрезки пауз включён (видео пересжимается, это дольше)")
     stats = await videovoice.build_voiced_video(
         str(video), text, synth, str(out), segment_times=segments,
         fit_to_scenes=not args.no_fit, max_tempo=args.max_tempo,
+        trim_idle=args.trim, pad=args.pad,
     )
     print(f"✅ Готово: {out}")
     print(f"   Сцен: {stats['scenes']}, абзацев озвучено: {stats['paragraphs']}, "
-          f"ускорено под тайминг: {stats['speedups']}")
+          f"ускорено под тайминг: {stats['speedups']}, обрезка пауз: {'да' if stats['trimmed'] else 'нет'}")
 
 
 if __name__ == "__main__":
