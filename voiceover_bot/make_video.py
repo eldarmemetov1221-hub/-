@@ -144,7 +144,22 @@ async def main() -> None:
         print("   ⚠️ Число моментов и абзацев не совпадает — проверь текст или подбери --threshold.")
 
     if args.preview:
-        print("👁 Предпросмотр — озвучка не создавалась. Подбери --threshold и запусти без --preview.")
+        # Сохраняем по скриншоту на каждый найденный момент — чтобы глазами
+        # проверить, что момент №N = вопрос №N.
+        import subprocess
+        import imageio_ffmpeg
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        shots = video.with_name("preview_кадры")
+        shots.mkdir(exist_ok=True)
+        for f in shots.glob("*.jpg"):
+            f.unlink()
+        for i, t in enumerate(segments, 1):
+            out_img = shots / f"{i:02d}_вопрос_{int(t)}сек.jpg"
+            subprocess.run([ff, "-hide_banner", "-y", "-ss", f"{t:.3f}", "-i", str(video),
+                            "-frames:v", "1", "-q:v", "3", str(out_img)], capture_output=True)
+        print(f"🖼  Скриншоты моментов сохранены в папку: {shots}")
+        print("   Открой её и проверь: 01 = 1-й вопрос, 02 = 2-й и т.д.")
+        print("👁 Предпросмотр — озвучка не создавалась.")
         return
 
     print(f"⏳ Накладываю озвучку (движок: {args.engine})…")
