@@ -24,19 +24,21 @@ def _ffmpeg() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def _extract_frames(video_path: str, outdir: str, interval: float) -> list[tuple[float, str]]:
-    """Достаёт по одному серому кадру каждые `interval` секунд.
+def _extract_frames(video_path: str, outdir: str, interval: float,
+                    scale: str = "256:144", gray: bool = True) -> list[tuple[float, str]]:
+    """Достаёт по одному кадру каждые `interval` секунд.
 
-    Разрешение среднее (256x144), чтобы текст вопроса не «замывался» — тогда
-    смена вопроса даёт заметную долю изменившихся пикселей.
+    По умолчанию 256x144 серый — для детекции смены по разнице пикселей.
+    Для OCR передают крупный масштаб (например 720:-1), чтобы текст читался.
     """
     fps = 1.0 / interval
     pattern = os.path.join(outdir, "f%05d.png")
-    subprocess.run(
-        [_ffmpeg(), "-hide_banner", "-y", "-i", video_path,
-         "-vf", f"fps={fps},scale=256:144", "-pix_fmt", "gray", pattern],
-        capture_output=True,
-    )
+    vf = f"fps={fps},scale={scale}"
+    cmd = [_ffmpeg(), "-hide_banner", "-y", "-i", video_path, "-vf", vf]
+    if gray:
+        cmd += ["-pix_fmt", "gray"]
+    cmd.append(pattern)
+    subprocess.run(cmd, capture_output=True)
     frames = []
     for name in sorted(os.listdir(outdir)):
         if name.endswith(".png"):
@@ -45,9 +47,27 @@ def _extract_frames(video_path: str, outdir: str, interval: float) -> list[tuple
     return frames
 
 
+def _setup_tesseract() -> None:
+    """На Windows pytesseract часто не видит tesseract.exe в PATH — пропишем
+    стандартный путь установки, если он есть."""
+    try:
+        import pytesseract
+    except Exception:
+        return
+    import shutil
+    if shutil.which("tesseract"):
+        return
+    for p in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+              r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+        if os.path.exists(p):
+            pytesseract.pytesseract.tesseract_cmd = p
+            return
+
+
 def ocr_available() -> bool:
     try:
-        import pytesseract  # noqa
+        import pytesseract
+        _setup_tesseract()
         pytesseract.get_tesseract_version()
         return True
     except Exception:
@@ -55,14 +75,41 @@ def ocr_available() -> bool:
 
 
 def _ocr_number(png_path: str) -> int | None:
-    """Пытается прочитать номер вопроса на кадре (если есть OCR)."""
+    """Читает номер вопроса на кадре: ищет «Вопрос N» (нужен русский язык OCR)."""
     try:
         import pytesseract
         txt = pytesseract.image_to_string(Image.open(png_path), lang="rus+eng")
     except Exception:
         return None
-    m = re.search(r"вопрос\D{0,3}(\d{1,2})", txt.lower())
-    return int(m.group(1)) if m else None
+    m = re.search(r"вопрос\D{0,4}(\d{1,2})", txt.lower())
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def detect_by_ocr(video_path: str, interval: float = 2.0, min_gap: float = 4.0) -> list[float]:
+    """Определяет старты вопросов, читая на экране «Билет 1, Вопрос N».
+
+    Возвращает время первого появления каждого номера по возрастанию — то есть
+    реальные смены вопросов. Подсветка ответа игнорируется (номер не меняется).
+    """
+    _setup_tesseract()
+    with tempfile.TemporaryDirectory() as tmp:
+        frames = _extract_frames(video_path, tmp, interval, scale="720:-1", gray=True)
+        seen: dict[int, float] = {}
+        for t, path in frames:
+            num = _ocr_number(path)
+            if num is not None and 1 <= num <= 60 and num not in seen:
+                seen[num] = t
+        if not seen:
+            return []
+        times = [seen[n] for n in sorted(seen)]
+        # склеиваем слишком близкие (случайные двойные чтения)
+        out = [0.0]
+        for t in times:
+            if t > 0 and t - out[-1] >= min_gap:
+                out.append(t)
+        return out
 
 
 def detect_changes(

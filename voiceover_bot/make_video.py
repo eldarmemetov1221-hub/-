@@ -128,7 +128,14 @@ async def main() -> None:
     print(f"🎬 Видео: {video}\n📝 Текст: {args.script}\n🎙 Голос: {args.voice}")
     paras = videovoice.split_paragraphs(text)
     print("🔎 Определяю смену вопросов на экране…")
-    if args.auto_count:
+    if smartscenes.ocr_available():
+        # Лучший способ: читаем номер «Вопрос N» на экране (подсветка ответа не мешает).
+        print("   📖 OCR доступен — читаю номер вопроса на экране")
+        segments = smartscenes.detect_by_ocr(str(video), interval=max(args.interval, 2.0), min_gap=4.0)
+        if len(segments) < max(2, len(paras) // 2):
+            print(f"   ⚠️ OCR нашёл мало вопросов ({len(segments)}) — откатываюсь на разницу кадров")
+            segments = smartscenes.detect_n_changes(str(video), len(paras), interval=args.interval, min_gap=args.min_gap)
+    elif args.auto_count:
         # Знаем число вопросов (= число абзацев): берём столько же самых сильных смен.
         segments = smartscenes.detect_n_changes(
             str(video), len(paras), interval=args.interval, min_gap=args.min_gap
