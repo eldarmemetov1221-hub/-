@@ -124,52 +124,57 @@ def _assemble_trim(video_path: str, segments: list[tuple[float, float]],
         raise RuntimeError(proc.stderr[-1500:] or "ffmpeg не смог собрать видео")
 
 
-def _assemble_smart(video_path: str, segs: list[dict],
-                    clips: list[tuple[str, float]], out_path: str) -> None:
-    """Умная сборка: каждая сцена = куски исходника (pieces) + опц. заморозка
-    последнего кадра (freeze), чтобы голос успел договорить. Зелёный ответ в
-    конце сцены сохраняется. Видео пересжимается."""
+def _assemble_smart(video_path: str, segs: list[dict], out_path: str) -> None:
+    """Умная сборка с жёсткой привязкой звука к своей сцене.
+
+    Каждая сцена приводится РОВНО к длине seg_len и по видео, и по звуку
+    (озвучка + тишина). И видео, и аудио собираются как конкатенация этих
+    равнодлинных кусков в одном порядке — поэтому звук вопроса физически не
+    может заехать на следующий (никакого накопительного сдвига).
+    seg["pieces"] — куски исходника (start,end); seg["freeze"] — заморозка
+    последнего кадра; seg["seg_len"] — итоговая длина; seg["narr"] — файл озвучки.
+    """
     args = [_ffmpeg(), "-hide_banner", "-y", "-i", video_path]
-    for clip, _ in clips:
-        args += ["-i", clip]
+    for seg in segs:
+        args += ["-i", seg["narr"]]
 
     filt = []
-    seg_labels = []
     n = 0
-    for seg in segs:
+    vlabels, alabels = [], []
+    for i, seg in enumerate(segs):
+        sl = seg["seg_len"]
         pieces = seg["pieces"]
         freeze = seg.get("freeze", 0.0)
         if len(pieces) == 1:
             s, e = pieces[0]
-            chain = f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS"
-            if freeze > 0.01:
-                chain += f",tpad=stop_mode=clone:stop_duration={freeze:.3f}"
-            lbl = f"[s{n}]"; n += 1
-            filt.append(chain + lbl)
-            seg_labels.append(lbl)
+            filt.append(
+                f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS,"
+                f"tpad=stop_mode=clone:stop_duration={freeze + 0.3:.3f},"
+                f"trim=0:{sl:.3f},setpts=PTS-STARTPTS[v{i}]"
+            )
         else:
             subs = []
             for (s, e) in pieces:
-                lbl = f"[s{n}]"; n += 1
-                filt.append(f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS{lbl}")
-                subs.append(lbl)
-            out_lbl = f"[s{n}]"; n += 1
-            filt.append(f"{''.join(subs)}concat=n={len(subs)}:v=1{out_lbl}")
-            seg_labels.append(out_lbl)
+                filt.append(f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS[p{n}]")
+                subs.append(f"[p{n}]"); n += 1
+            filt.append(
+                f"{''.join(subs)}concat=n={len(subs)}:v=1,"
+                f"tpad=stop_mode=clone:stop_duration=0.3,"
+                f"trim=0:{sl:.3f},setpts=PTS-STARTPTS[v{i}]"
+            )
+        vlabels.append(f"[v{i}]")
+        # Звук: озвучка с начала сцены + тишина до конца сцены, ровно seg_len.
+        filt.append(f"[{i + 1}:a]apad,atrim=0:{sl:.3f},asetpts=N/SR/TB[a{i}]")
+        alabels.append(f"[a{i}]")
 
-    filt.append(f"{''.join(seg_labels)}concat=n={len(seg_labels)}:v=1[vout]")
-
-    for i, (_, start) in enumerate(clips):
-        delay = max(0, int(start * 1000))
-        filt.append(f"[{i + 1}:a]adelay={delay}|{delay}[a{i}]")
-    filt.append(f"{''.join(f'[a{i}]' for i in range(len(clips)))}"
-                f"amix=inputs={len(clips)}:normalize=0[aout]")
+    filt.append(f"{''.join(vlabels)}concat=n={len(segs)}:v=1[vout]")
+    filt.append(f"{''.join(alabels)}concat=n={len(segs)}:v=0:a=1[aout]")
 
     args += [
         "-filter_complex", ";".join(filt),
         "-map", "[vout]", "-map", "[aout]",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
         out_path,
     ]
     proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -196,9 +201,7 @@ async def build_smart_video(
 
     extended = trimmed = 0
     with tempfile.TemporaryDirectory() as tmp:
-        clips: list[tuple[str, float]] = []
         segs: list[dict] = []
-        cum = 0.0
         for i, para in enumerate(paragraphs):
             data = await synth(para)
             clip = os.path.join(tmp, f"p{i}.mp3")
@@ -212,21 +215,19 @@ async def build_smart_video(
 
             if L >= read + green_tail:
                 # Текста меньше — вырезаем простой в середине, зелёный хвост оставляем.
-                segs.append({"pieces": [(s, s + read), (e - green_tail, e)], "freeze": 0.0})
-                seg_len = read + green_tail
+                seg = {"pieces": [(s, s + read), (e - green_tail, e)],
+                       "freeze": 0.0, "seg_len": read + green_tail, "narr": clip}
                 trimmed += 1
             else:
                 # Текста больше — держим всю сцену и морозим последний кадр.
                 freeze = max(0.0, read - L)
-                segs.append({"pieces": [(s, e)], "freeze": freeze})
-                seg_len = L + freeze
+                seg = {"pieces": [(s, e)], "freeze": freeze,
+                       "seg_len": L + freeze, "narr": clip}
                 if freeze > 0.05:
                     extended += 1
+            segs.append(seg)
 
-            clips.append((clip, cum))
-            cum += seg_len
-
-        await asyncio.to_thread(_assemble_smart, video_path, segs, clips, out_path)
+        await asyncio.to_thread(_assemble_smart, video_path, segs, out_path)
 
     return {"scenes": len(scenes), "paragraphs": len(paragraphs),
             "extended": extended, "trimmed": trimmed}
