@@ -96,35 +96,38 @@ def ocr_available() -> bool:
     return _has_tesseract() or _has_easyocr()
 
 
-def _ocr_text(png_path: str) -> str:
-    """Текст с кадра — через Tesseract или EasyOCR (что установлено)."""
+def _ocr_text(img) -> str:
+    """Текст с картинки (PIL Image) — через Tesseract или EasyOCR."""
     if _has_tesseract():
         try:
             import pytesseract
-            return pytesseract.image_to_string(Image.open(png_path), lang="rus+eng")
+            return pytesseract.image_to_string(img, lang="rus+eng")
         except Exception:
             pass
     if _has_easyocr():
         try:
-            return " ".join(_easyocr().readtext(png_path, detail=0))
+            import numpy as np
+            return " ".join(_easyocr().readtext(np.asarray(img), detail=0))
         except Exception:
             pass
     return ""
 
 
-def _ocr_number(png_path: str) -> int | None:
-    """Читает номер вопроса на кадре: ищет «Вопрос N»."""
-    txt = _ocr_text(png_path).lower()
+def _ocr_number_img(img) -> int | None:
+    """Читает номер вопроса на картинке: ищет «Вопрос N»."""
+    txt = _ocr_text(img).lower()
     m = re.search(r"вопрос\W{0,4}(\d{1,2})", txt)
     if m:
         return int(m.group(1))
     return None
 
 
-def detect_by_ocr(video_path: str, interval: float = 2.0, min_gap: float = 4.0) -> list[float]:
+def detect_by_ocr(video_path: str, interval: float = 3.0, min_gap: float = 4.0,
+                  y0: float = 0.05, y1: float = 0.62) -> list[float]:
     """Определяет старты вопросов, читая на экране «Билет 1, Вопрос N».
 
-    Возвращает время первого появления каждого номера по возрастанию — то есть
+    Ради скорости OCR обрабатывает только ВЕРХНЮЮ часть кадра (где номер), без
+    нижних кнопок ответов. Возвращает время первого появления каждого номера —
     реальные смены вопросов. Подсветка ответа игнорируется (номер не меняется).
     """
     _setup_tesseract()
@@ -132,13 +135,15 @@ def detect_by_ocr(video_path: str, interval: float = 2.0, min_gap: float = 4.0) 
         frames = _extract_frames(video_path, tmp, interval, scale="720:-1", gray=False)
         seen: dict[int, float] = {}
         for t, path in frames:
-            num = _ocr_number(path)
+            img = Image.open(path)
+            h = img.height
+            crop = img.crop((0, int(h * y0), img.width, int(h * y1)))  # только верх с номером
+            num = _ocr_number_img(crop)
             if num is not None and 1 <= num <= 60 and num not in seen:
                 seen[num] = t
         if not seen:
             return []
         times = [seen[n] for n in sorted(seen)]
-        # склеиваем слишком близкие (случайные двойные чтения)
         out = [0.0]
         for t in times:
             if t > 0 and t - out[-1] >= min_gap:
@@ -174,7 +179,7 @@ def detect_changes(
             # По номеру вопроса: смена номера = новый вопрос.
             prev_num = None
             for t, path in frames:
-                num = _ocr_number(path)
+                num = _ocr_number_img(Image.open(path))
                 if num is not None and num != prev_num:
                     if t - last_kept >= min_gap and t > 0:
                         boundaries.append(t)

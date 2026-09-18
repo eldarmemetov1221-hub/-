@@ -159,16 +159,35 @@ async def main() -> None:
 
     print(f"🎬 Видео: {video}\n📝 Текст: {args.script}\n🎙 Голос: {args.voice}")
     paras = videovoice.split_paragraphs(text)
+
+    # Кэш найденных моментов: определяем один раз, дальше берём готовое (мгновенно).
+    scene_cache = None
+    try:
+        st = video.stat()
+        ckey = hashlib.sha1(f"{video}|{st.st_size}|{int(st.st_mtime)}|ocr".encode()).hexdigest()
+        scene_cache = CACHE_DIR / f"scenes_{ckey}.json"
+    except OSError:
+        pass
+
     if args.timings:
         segments = parse_timings(read_text_any(args.timings))
         print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен")
+    elif scene_cache and scene_cache.exists() and not args.preview:
+        import json
+        segments = json.loads(scene_cache.read_text(encoding="utf-8"))
+        print(f"   💾 Моменты из кэша: {len(segments)} (OCR не повторяю)")
     elif smartscenes.ocr_available():
         # Лучший способ: читаем номер «Вопрос N» на экране (подсветка ответа не мешает).
-        print("   📖 OCR доступен — читаю номер вопроса на экране")
-        segments = smartscenes.detect_by_ocr(str(video), interval=max(args.interval, 2.0), min_gap=4.0)
+        print("   📖 OCR доступен — читаю номер вопроса (только верх кадра, быстро). Это разово.")
+        segments = smartscenes.detect_by_ocr(str(video), interval=max(args.interval, 3.0), min_gap=4.0)
         if len(segments) < max(2, len(paras) // 2):
             print(f"   ⚠️ OCR нашёл мало вопросов ({len(segments)}) — откатываюсь на разницу кадров")
             segments = smartscenes.detect_n_changes(str(video), len(paras), interval=args.interval, min_gap=args.min_gap)
+        else:
+            CACHE_DIR.mkdir(exist_ok=True)
+            if scene_cache:
+                import json
+                scene_cache.write_text(json.dumps(segments), encoding="utf-8")
     elif args.auto_count:
         # Знаем число вопросов (= число абзацев): берём столько же самых сильных
         # смен ОБЛАСТИ ВОПРОСА (без нижних кнопок ответов).
