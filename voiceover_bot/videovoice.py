@@ -333,9 +333,13 @@ async def build_voiced_video(
                 # медленнее min_tempo, иначе звучит неестественно).
                 start = s_start if slot else prev_end
                 if fit_to_scenes and slot and slot > 0.4:
-                    target = slot - min(0.4, slot * 0.15)  # оставим капельку паузы
+                    # ГАРАНТИРУЕМ, что озвучка влезет в свой вопрос и не переедет
+                    # на следующий: если не влезает, ускоряем вплоть до 2x (жёсткий
+                    # предел ffmpeg). Верхний предел здесь не ограничен --max-tempo,
+                    # чтобы каскадного сдвига не было ни при каких условиях.
+                    target = slot - min(0.3, slot * 0.1)  # чуть-чуть паузы в конце
                     tempo = dur / target if target > 0.3 else 1.0
-                    tempo = max(min_tempo, min(max_tempo, tempo))
+                    tempo = max(min_tempo, min(2.0, tempo))
                     if abs(tempo - 1.0) > 0.02:
                         fitted = os.path.join(tmp, f"f{i}.mp3")
                         await asyncio.to_thread(apply_tempo, clip, fitted, tempo)
@@ -344,6 +348,8 @@ async def build_voiced_video(
                             speedups += 1
                         else:
                             slowdowns += 1
+                # Никогда не начинаем раньше конца прошлой озвучки, но и не
+                # позволяем ей толкать нас за пределы своей сцены.
                 start = max(start, prev_end)
                 clips.append((clip, start))
                 prev_end = start + dur
