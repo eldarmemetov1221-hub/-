@@ -224,27 +224,31 @@ async def main() -> None:
 
     synth = make_cached_synth(base_synth, args.engine, args.voice, args.rate, args.pitch, len(paras))
 
-    if args.smart:
-        print("   🧠 Умный режим (естественный темп, удлинение/обрезка сцен, видео пересжимается)")
+    if args.smart or args.trim:
+        # Оба режима теперь режут «мёртвую» задержку в середине вопроса, но
+        # ОСТАВЛЯЮТ зелёный ответ в конце. Разница: --smart может удлинять сцену
+        # заморозкой (если текста больше), --trim секунды не добавляет (ускоряет).
+        extend = bool(args.smart)
+        print("   ✂️ Режу задержки, зелёный ответ сохраняю" +
+              (", длинный текст удлиняет сцену" if extend else ", длинный текст ускоряю"))
         stats = await videovoice.build_smart_video(
-            str(video), text, synth, str(out), segment_times=segments, pad=min(args.pad, 1.0),
+            str(video), text, synth, str(out), segment_times=segments,
+            pad=min(args.pad, 1.2), extend=extend, max_tempo=args.max_tempo,
         )
         print(f"✅ Готово: {out}")
         print(f"   Сцен: {stats['scenes']}, абзацев: {stats['paragraphs']}, "
-              f"удлинено (заморозка): {stats['extended']}, обрезано (простой): {stats['trimmed']}")
+              f"обрезано (задержка): {stats['trimmed']}, "
+              f"удлинено: {stats['extended']}, ускорено: {stats.get('spedup', 0)}")
         return
 
-    if args.trim:
-        print("   ✂️ Режим обрезки пауз включён (видео пересжимается, это дольше)")
     stats = await videovoice.build_voiced_video(
         str(video), text, synth, str(out), segment_times=segments,
         fit_to_scenes=not args.no_fit, max_tempo=args.max_tempo,
-        trim_idle=args.trim, pad=args.pad,
+        trim_idle=False, pad=args.pad,
     )
     print(f"✅ Готово: {out}")
     print(f"   Сцен: {stats['scenes']}, абзацев: {stats['paragraphs']}, "
-          f"ускорено: {stats['speedups']}, замедлено: {stats.get('slowdowns', 0)}, "
-          f"обрезка пауз: {'да' if stats['trimmed'] else 'нет'}")
+          f"ускорено: {stats['speedups']}, замедлено: {stats.get('slowdowns', 0)}")
 
 
 if __name__ == "__main__":

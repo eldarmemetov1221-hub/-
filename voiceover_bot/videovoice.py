@@ -202,17 +202,26 @@ async def build_smart_video(
     out_path: str,
     segment_times: list[float],
     pad: float = 0.8,
-    green_tail: float = 1.5,
+    green_tail: float = 2.0,
+    extend: bool = True,
+    max_tempo: float = 1.8,
 ) -> dict:
-    """Человеческая озвучка по сценам: естественный темп, удлинение сцены
-    заморозкой если текста больше, вырезание простоя если меньше (с сохранением
-    зелёного момента в конце). Переход к следующему вопросу — только после того,
-    как голос договорил."""
+    """Озвучка по сценам с сохранением зелёного ответа в конце каждой сцены.
+
+    В каждом вопросе: если после озвучки есть «мёртвая» задержка — вырезаем её
+    из СЕРЕДИНЫ, а концовку с зелёным ответом (последние `green_tail` сек)
+    оставляем. Зелёная полоска видна всегда.
+
+    `extend=True` — если текста больше, чем длится сцена, удлиняем сцену
+    заморозкой кадра (видео станет длиннее).
+    `extend=False` — секунды НЕ добавляем; если текста больше сцены, слегка
+    ускоряем голос, чтобы влез (зелёный при этом не режется).
+    """
     paragraphs = split_paragraphs(text)
     scenes = sorted(set(segment_times) | {0.0})
     video_dur = await asyncio.to_thread(media_duration, video_path)
 
-    extended = trimmed = 0
+    extended = trimmed = spedup = 0
     with tempfile.TemporaryDirectory() as tmp:
         segs: list[dict] = []
         for i, para in enumerate(paragraphs):
@@ -227,12 +236,24 @@ async def build_smart_video(
             read = dur + pad  # сколько экрана нужно под голос + пауза
 
             if L >= read + green_tail:
-                # Текста меньше — вырезаем простой в середине, зелёный хвост оставляем.
+                # Есть мёртвая задержка — режем СЕРЕДИНУ, зелёный хвост оставляем.
                 seg = {"pieces": [(s, s + read), (e - green_tail, e)],
                        "freeze": 0.0, "seg_len": read + green_tail, "narr": clip}
                 trimmed += 1
+            elif dur <= L or not extend:
+                # Держим всю сцену целиком (зелёный внутри, в конце). Ничего не
+                # добавляем. Если текста больше сцены — чуть ускорим голос, чтобы
+                # влез, но зелёный не режем.
+                seg = {"pieces": [(s, e)], "freeze": 0.0, "seg_len": L, "narr": clip}
+                if dur > L - 0.1:
+                    tempo = min(dur / max(0.5, L - 0.1), max_tempo)
+                    if tempo > 1.02:
+                        fitted = os.path.join(tmp, f"f{i}.mp3")
+                        await asyncio.to_thread(apply_tempo, clip, fitted, tempo)
+                        seg["narr"] = fitted
+                        spedup += 1
             else:
-                # Текста больше — держим всю сцену и морозим последний кадр.
+                # extend=True и текста больше — держим сцену и морозим кадр.
                 freeze = max(0.0, read - L)
                 seg = {"pieces": [(s, e)], "freeze": freeze,
                        "seg_len": L + freeze, "narr": clip}
@@ -243,7 +264,7 @@ async def build_smart_video(
         await asyncio.to_thread(_assemble_smart, video_path, segs, out_path)
 
     return {"scenes": len(scenes), "paragraphs": len(paragraphs),
-            "extended": extended, "trimmed": trimmed}
+            "extended": extended, "trimmed": trimmed, "spedup": spedup}
 
 
 async def build_voiced_video(
