@@ -182,8 +182,10 @@ async def main() -> None:
         pass
 
     if args.timings:
-        segments = parse_timings(read_text_any(args.timings))
-        print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен")
+        import os as _os
+        src = read_text_any(args.timings) if _os.path.exists(args.timings) else args.timings
+        segments = parse_timings(src)
+        print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен — {', '.join(f'{t:.0f}' for t in segments)}")
     elif scene_cache and scene_cache.exists() and not args.preview and _load_scene_cache(scene_cache):
         segments = _load_scene_cache(scene_cache)
         print(f"   💾 Моменты из кэша: {len(segments)} (OCR не повторяю)")
