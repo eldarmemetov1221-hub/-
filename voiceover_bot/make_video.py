@@ -41,6 +41,18 @@ def read_text_any(path: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def _load_scene_cache(path):
+    """Читает кэш моментов; при пустом/битом файле возвращает None."""
+    import json
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list) and len(data) >= 2:
+            return [float(x) for x in data]
+    except Exception:
+        pass
+    return None
+
+
 def parse_timings(raw: str) -> list[float]:
     """Разбирает тайминги: строки вида 0:00, 1:12, 2:05 или просто секунды 37.
     Можно несколько в строке через пробел/запятую. Возвращает секунды со стартом 0."""
@@ -172,9 +184,8 @@ async def main() -> None:
     if args.timings:
         segments = parse_timings(read_text_any(args.timings))
         print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен")
-    elif scene_cache and scene_cache.exists() and not args.preview:
-        import json
-        segments = json.loads(scene_cache.read_text(encoding="utf-8"))
+    elif scene_cache and scene_cache.exists() and not args.preview and _load_scene_cache(scene_cache):
+        segments = _load_scene_cache(scene_cache)
         print(f"   💾 Моменты из кэша: {len(segments)} (OCR не повторяю)")
     elif smartscenes.ocr_available():
         # Читаем номер «Вопрос N», но OCR только на кадрах смены картинки — легко.
