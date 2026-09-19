@@ -122,33 +122,56 @@ def _ocr_number_img(img) -> int | None:
     return None
 
 
-def detect_by_ocr(video_path: str, interval: float = 3.0, min_gap: float = 4.0,
-                  y0: float = 0.05, y1: float = 0.62) -> list[float]:
-    """Определяет старты вопросов, читая на экране «Билет 1, Вопрос N».
+def _extract_one(video_path: str, t: float, outdir: str) -> str | None:
+    """Один кадр в момент t (перемотка -ss — быстро, без нагрузки)."""
+    p = os.path.join(outdir, f"o_{int(t * 1000)}.png")
+    subprocess.run(
+        [_ffmpeg(), "-hide_banner", "-y", "-ss", f"{t:.3f}", "-i", video_path,
+         "-frames:v", "1", "-vf", "scale=720:-1", p],
+        capture_output=True,
+    )
+    return p if os.path.exists(p) else None
 
-    Ради скорости OCR обрабатывает только ВЕРХНЮЮ часть кадра (где номер), без
-    нижних кнопок ответов. Возвращает время первого появления каждого номера —
-    реальные смены вопросов. Подсветка ответа игнорируется (номер не меняется).
+
+def detect_by_ocr(video_path: str, min_gap: float = 4.0,
+                  y0: float = 0.05, y1: float = 0.62) -> list[float]:
+    """Старты вопросов по номеру «Вопрос N», но OCR — ТОЛЬКО на кадрах, где
+    картинка реально сменилась (кандидаты находим дешёвой разницей кадров, без
+    нейросети). Это в разы меньше работы для процессора.
+
+    Возвращает время первого появления каждого номера — реальные смены вопросов.
+    Подсветка ответа игнорируется (номер не меняется).
     """
     _setup_tesseract()
+    # 1) Дёшево (без torch): где вообще менялась область вопроса.
+    scores = _scored_changes(video_path, interval=1.0, pixel_delta=30, y0=0.28, y1=0.66)
+    cands: list[float] = [0.0]
+    for t, frac in sorted(scores):
+        if frac > 0.02 and t - cands[-1] >= 2.0:
+            cands.append(t)
+
+    # 2) OCR только на кандидатах (читаем номер чуть после смены).
+    seen: dict[int, float] = {}
     with tempfile.TemporaryDirectory() as tmp:
-        frames = _extract_frames(video_path, tmp, interval, scale="720:-1", gray=False)
-        seen: dict[int, float] = {}
-        for t, path in frames:
+        for t in cands:
+            path = _extract_one(video_path, t + 0.4, tmp)
+            if not path:
+                continue
             img = Image.open(path)
             h = img.height
-            crop = img.crop((0, int(h * y0), img.width, int(h * y1)))  # только верх с номером
+            crop = img.crop((0, int(h * y0), img.width, int(h * y1)))
             num = _ocr_number_img(crop)
             if num is not None and 1 <= num <= 60 and num not in seen:
                 seen[num] = t
-        if not seen:
-            return []
-        times = [seen[n] for n in sorted(seen)]
-        out = [0.0]
-        for t in times:
-            if t > 0 and t - out[-1] >= min_gap:
-                out.append(t)
-        return out
+
+    if not seen:
+        return []
+    times = [seen[n] for n in sorted(seen)]
+    out = [0.0]
+    for t in times:
+        if t > 0 and t - out[-1] >= min_gap:
+            out.append(t)
+    return out
 
 
 def detect_changes(

@@ -177,9 +177,9 @@ async def main() -> None:
         segments = json.loads(scene_cache.read_text(encoding="utf-8"))
         print(f"   💾 Моменты из кэша: {len(segments)} (OCR не повторяю)")
     elif smartscenes.ocr_available():
-        # Лучший способ: читаем номер «Вопрос N» на экране (подсветка ответа не мешает).
-        print("   📖 OCR доступен — читаю номер вопроса (только верх кадра, быстро). Это разово.")
-        segments = smartscenes.detect_by_ocr(str(video), interval=max(args.interval, 3.0), min_gap=4.0)
+        # Читаем номер «Вопрос N», но OCR только на кадрах смены картинки — легко.
+        print("   📖 Читаю номер вопроса только на сменах кадра (лёгкая нагрузка). Это разово.")
+        segments = smartscenes.detect_by_ocr(str(video), min_gap=4.0)
         if len(segments) < max(2, len(paras) // 2):
             print(f"   ⚠️ OCR нашёл мало вопросов ({len(segments)}) — откатываюсь на разницу кадров")
             segments = smartscenes.detect_n_changes(str(video), len(paras), interval=args.interval, min_gap=args.min_gap)
