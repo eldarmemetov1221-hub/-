@@ -163,6 +163,10 @@ async def main() -> None:
                     help="нижняя граница области вопроса (доля высоты), чтобы не ловить кнопки ответов")
     ap.add_argument("--timings", default=None,
                     help="файл с временами начала сцен (по строке: 0:00, 0:37, 1:12 …) — 100% точно, без авто-детекта")
+    ap.add_argument("--no-ocr", dest="use_ocr", action="store_false",
+                    help="не использовать OCR (нейросеть грузит видеокарту) — искать по разнице кадров, легко")
+    ap.add_argument("--all-changes", action="store_true",
+                    help="в предпросмотре показать ВСЕ смены картинки (кандидаты) со скриншотами — удобно вручную выбрать таймкоды")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -186,10 +190,19 @@ async def main() -> None:
         src = read_text_any(args.timings) if _os.path.exists(args.timings) else args.timings
         segments = parse_timings(src)
         print(f"⏱ Тайминги заданы вручную: {len(segments)} сцен — {', '.join(f'{t:.0f}' for t in segments)}")
+    elif args.all_changes:
+        # Все смены картинки (кандидаты) — для ручного выбора по скриншотам. Без OCR.
+        print("   🖼 Ищу ВСЕ смены картинки (без нейросети, легко)…")
+        scored = smartscenes._scored_changes(str(video), interval=1.0, pixel_delta=30,
+                                              y0=args.region_top, y1=args.region_bottom)
+        segments = [0.0]
+        for t, frac in sorted(scored):
+            if frac > 0.02 and t - segments[-1] >= 3.0:
+                segments.append(t)
     elif scene_cache and scene_cache.exists() and not args.preview and _load_scene_cache(scene_cache):
         segments = _load_scene_cache(scene_cache)
         print(f"   💾 Моменты из кэша: {len(segments)} (OCR не повторяю)")
-    elif smartscenes.ocr_available():
+    elif args.use_ocr and smartscenes.ocr_available():
         # Читаем номер «Вопрос N», но OCR только на кадрах смены картинки — легко.
         print("   📖 Читаю номер вопроса только на сменах кадра (лёгкая нагрузка). Это разово.")
         segments = smartscenes.detect_by_ocr(str(video), min_gap=4.0)
