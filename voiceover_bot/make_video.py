@@ -79,7 +79,7 @@ def parse_timings(raw: str) -> list[float]:
     return sorted(set(times) | {0.0})
 
 
-async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int = 4) -> bytes:
+async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int = 10) -> bytes:
     last = None
     for attempt in range(retries):
         try:
@@ -94,11 +94,13 @@ async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int 
                 raise RuntimeError("пустой ответ")
             finally:
                 Path(path).unlink(missing_ok=True)
-        except Exception as e:  # noqa: BLE001 — сеть/таймаут/NoAudio: повторяем
+        except Exception as e:  # noqa: BLE001 — сеть/таймаут/NoAudio: повторяем настойчиво
             last = e
             if attempt < retries - 1:
-                print(f"      ⚠️ сеть моргнула ({type(e).__name__}), повтор {attempt + 2}/{retries}…")
-                await asyncio.sleep(2 * (attempt + 1))
+                wait = min(15, 3 * (attempt + 1))  # 3,6,9,12,15,15… сек
+                print(f"      ⚠️ Microsoft не отдал звук ({type(e).__name__}), "
+                      f"жду {wait}с и повторяю {attempt + 2}/{retries}…")
+                await asyncio.sleep(wait)
     raise last
 
 
