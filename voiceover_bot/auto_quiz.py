@@ -370,12 +370,12 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   .options { margin-top: 16px; display: grid; gap: 10px; }
   .opt {
     font-size: 22px; padding: 13px 18px; border: 2px solid #dce3ee; border-radius: 12px;
-    background: #f7f9fc; transition: background .25s, border-color .25s, transform .1s;
+    background: #f7f9fc; transition: background .7s ease, border-color .7s ease, color .7s ease;
   }
-  .opt .n { display: inline-block; min-width: 32px; font-weight: 700; color: #7a8aa0; }
+  .opt .n { display: inline-block; min-width: 32px; font-weight: 700; color: #7a8aa0;
+            transition: color .7s ease; }
   .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
   .opt.correct .n { color: #2ea24a; }
-  .opt.press { transform: scale(.99); }
   .explain {
     margin-top: 16px; font-size: 19px; color: #3a4a5e; line-height: 1.4;
     background: #f4f7fb; border-left: 4px solid #34c759; border-radius: 8px;
@@ -433,12 +433,10 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
 
   function reveal(q) {
+    // Плавно зажигаем зелёный (переход .7s задан в CSS).
     const el = optsEl.querySelector('.opt[data-i="' + q.correct + '"]');
-    if (el) {
-      el.classList.add("press");
-      setTimeout(() => { el.classList.remove("press"); el.classList.add("correct"); }, 140);
-    }
-    if (q.explanation) setTimeout(() => explEl.classList.add("show"), 260);
+    if (el) el.classList.add("correct");
+    if (q.explanation) setTimeout(() => explEl.classList.add("show"), 200);
   }
 
   // Публичные функции — их дёргает Playwright по расписанию.
@@ -452,10 +450,18 @@ _PAGE_TEMPLATE = r"""<!doctype html>
 
   DATA._totalDur = DATA.schedule.reduce((a, s) => a + s.dur, 0) || 1;
 
+  const card = document.querySelector(".card");
   window.__quiz = {
     show(i) {
       const q = DATA.questions[i];
       render(q);
+      // Плавное появление нового вопроса (мягкий переход).
+      card.style.transition = "none";
+      card.style.opacity = "0";
+      requestAnimationFrame(() => {
+        card.style.transition = "opacity .6s ease";
+        card.style.opacity = "1";
+      });
       DATA._elapsedBefore = DATA.schedule.slice(0, i).reduce((a, s) => a + s.dur, 0);
       clockBase = DATA._elapsedBefore;
       clockDur = DATA.schedule[i].dur;
@@ -751,10 +757,10 @@ def main() -> None:
     ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural",
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
-    ap.add_argument("--rate", default="-8%",
-                    help="скорость речи (по умолчанию -8%% — спокойный средний темп)")
+    ap.add_argument("--rate", default="-15%",
+                    help="скорость речи (по умолчанию -15%% — медленно и внятно)")
     ap.add_argument("--pitch", default="+0Hz")
-    ap.add_argument("--pad", type=float, default=1.5,
+    ap.add_argument("--pad", type=float, default=2.0,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
     ap.add_argument("--before", type=float, default=1.5,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
