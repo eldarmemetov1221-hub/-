@@ -501,21 +501,28 @@ def media_duration(path: str) -> float:
 
 
 def concat_audio(clips: list[tuple[str, float]], gaps: list[float], out: str) -> None:
-    """Склеивает озвучки вопросов с тишиной между ними так, чтобы каждая начиналась
-    ровно в начале своего вопроса. `gaps[i]` — тишина ПОСЛЕ i-й озвучки до конца
-    сцены (пауза)."""
+    """Склеивает озвучки вопросов с тишиной между ними. Чтобы разные форматы
+    (mp3/aac/wav) склеивались надёжно, КАЖДЫЙ кусок сначала приводим к единому
+    WAV (48кГц, стерео), потом склеиваем встык и кодируем в aac."""
     with tempfile.TemporaryDirectory() as tmp:
         parts = []
-        for i, ((clip, _), gap) in enumerate(zip(clips, gaps)):
-            parts.append(clip)
+        idx = 0
+        for (clip, _), gap in zip(clips, gaps):
+            w = str(Path(tmp) / f"p{idx:04d}.wav"); idx += 1
+            subprocess.run(
+                [FFMPEG, "-hide_banner", "-y", "-i", clip,
+                 "-ar", "48000", "-ac", "2", w],
+                capture_output=True, check=True,
+            )
+            parts.append(w)
             if gap > 0.01:
-                sil = str(Path(tmp) / f"sil_{i}.m4a")
+                s = str(Path(tmp) / f"p{idx:04d}.wav"); idx += 1
                 subprocess.run(
                     [FFMPEG, "-hide_banner", "-y", "-f", "lavfi", "-t", f"{gap:.3f}",
-                     "-i", "anullsrc=r=48000:cl=stereo", "-c:a", "aac", sil],
+                     "-i", "anullsrc=r=48000:cl=stereo", "-ar", "48000", "-ac", "2", s],
                     capture_output=True, check=True,
                 )
-                parts.append(sil)
+                parts.append(s)
         listfile = Path(tmp) / "list.txt"
         listfile.write_text("".join(f"file '{p}'\n" for p in parts), encoding="utf-8")
         subprocess.run(
