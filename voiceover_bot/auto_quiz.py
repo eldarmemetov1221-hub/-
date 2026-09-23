@@ -370,10 +370,12 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   .options { margin-top: 16px; display: grid; gap: 10px; }
   .opt {
     font-size: 22px; padding: 13px 18px; border: 2px solid #dce3ee; border-radius: 12px;
-    background: #f7f9fc; transition: background .7s ease, border-color .7s ease, color .7s ease;
+    background: #f7f9fc; box-shadow: 0 0 0 rgba(52,199,89,0);
+    transition: background 1s ease, border-color 1s ease, color 1s ease, box-shadow 1s ease;
   }
   .opt .n { display: inline-block; min-width: 32px; font-weight: 700; color: #7a8aa0;
-            transition: color .7s ease; }
+            transition: color 1s ease; }
+  .opt.correct { box-shadow: 0 0 0 3px rgba(52,199,89,.25); }
   .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
   .opt.correct .n { color: #2ea24a; }
   .explain {
@@ -455,12 +457,15 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     show(i) {
       const q = DATA.questions[i];
       render(q);
-      // Плавное появление нового вопроса (мягкий переход).
+      // Плавное появление нового вопроса: мягкое затухание + лёгкий подъём.
       card.style.transition = "none";
       card.style.opacity = "0";
+      card.style.transform = "translateY(16px)";
       requestAnimationFrame(() => {
-        card.style.transition = "opacity .6s ease";
+        card.style.transition = "opacity .8s cubic-bezier(.22,.61,.36,1), " +
+                                "transform .8s cubic-bezier(.22,.61,.36,1)";
         card.style.opacity = "1";
+        card.style.transform = "translateY(0)";
       });
       DATA._elapsedBefore = DATA.schedule.slice(0, i).reduce((a, s) => a + s.dur, 0);
       clockBase = DATA._elapsedBefore;
