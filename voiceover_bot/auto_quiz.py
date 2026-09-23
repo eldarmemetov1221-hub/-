@@ -353,8 +353,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .card {
     width: 1100px; max-width: 96vw; background: #fff; border-radius: 18px;
-    box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 22px 36px 26px;
-    margin: 16px 0; position: relative;
+    box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 16px 36px 18px;
+    margin: 10px 0; position: relative;
   }
   .top { display: flex; align-items: center; justify-content: space-between; }
   .badge {
@@ -362,19 +362,19 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     background: #eaf1ff; padding: 8px 16px; border-radius: 10px;
   }
   .timer { font-size: 22px; font-weight: 700; color: #55657a; }
-  .imgzone { text-align: center; margin: 16px 0 14px; }
-  .imgzone img { max-width: 100%; max-height: 300px; border-radius: 12px;
+  .imgzone { text-align: center; margin: 10px 0 10px; }
+  .imgzone img { max-width: 100%; max-height: min(210px, 30vh); border-radius: 12px;
                  border: 1px solid #e3e9f2; display: none; }
   .imgzone img.show { display: inline-block; }
-  .question { font-size: 27px; line-height: 1.3; font-weight: 600; }
-  .options { margin-top: 16px; display: grid; gap: 10px; }
+  .question { font-size: 25px; line-height: 1.28; font-weight: 600; }
+  .options { margin-top: 12px; display: grid; gap: 8px; }
   .opt {
-    font-size: 22px; padding: 13px 18px; border: 2px solid #dce3ee; border-radius: 12px;
+    font-size: 21px; padding: 11px 18px; border: 2px solid #dce3ee; border-radius: 12px;
     background: #f7f9fc; box-shadow: 0 0 0 rgba(52,199,89,0);
-    transition: background 1s ease, border-color 1s ease, color 1s ease, box-shadow 1s ease;
+    transition: background .3s ease, border-color .3s ease, color .3s ease, box-shadow .3s ease;
   }
-  .opt .n { display: inline-block; min-width: 32px; font-weight: 700; color: #7a8aa0;
-            transition: color 1s ease; }
+  .opt .n { display: inline-block; min-width: 30px; font-weight: 700; color: #7a8aa0;
+            transition: color .3s ease; }
   .opt.correct { box-shadow: 0 0 0 3px rgba(52,199,89,.25); }
   .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
   .opt.correct .n { color: #2ea24a; }
