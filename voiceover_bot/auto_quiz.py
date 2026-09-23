@@ -64,6 +64,12 @@ FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 #  Разбор текста билета на вопросы
 # --------------------------------------------------------------------------- #
 
+def _close(p: str) -> str:
+    """Закрывает фразу точкой, если нет знака в конце — чтобы edge-tts сделал паузу."""
+    p = p.strip()
+    return p if p[-1:] in ".!?…:;" else p + "."
+
+
 @dataclass
 class Question:
     number: int
@@ -85,10 +91,27 @@ class Question:
         if self.explanation:
             parts.append(self.explanation.strip())
         # Точки между блоками = аккуратные паузы «среднего» темпа.
-        def close(p: str) -> str:
-            p = p.strip()
-            return p if p[-1:] in ".!?…:;" else p + "."
-        return "  ".join(close(p) for p in parts if p.strip())
+        return "  ".join(_close(p) for p in parts if p.strip())
+
+    def narration_intro(self) -> str:
+        """Первая часть озвучки: вопрос + варианты (её читаем ДО зелёного)."""
+        parts = [self.text.strip()]
+        for i, opt in enumerate(self.options, 1):
+            parts.append(f"{i}. {opt.strip()}")
+        return "  ".join(_close(p) for p in parts if p.strip())
+
+    def narration_answer(self) -> str:
+        """Вторая часть: «правильный ответ» + пояснение (её читаем, когда уже
+        загорелся зелёный)."""
+        parts = []
+        if 0 <= self.correct < len(self.options):
+            parts.append(f"Правильный ответ: {self.options[self.correct].strip()}.")
+        if self.explanation:
+            parts.append(self.explanation.strip())
+        return "  ".join(_close(p) for p in parts if p.strip())
+
+    def correct_text(self) -> str:
+        return self.options[self.correct].strip() if 0 <= self.correct < len(self.options) else ""
 
 
 _HEADING = re.compile(
