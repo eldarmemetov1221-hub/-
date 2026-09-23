@@ -298,6 +298,19 @@ async def discover_answers(page, questions, shot_dir: str | None = None) -> list
     return out
 
 
+def _split_narration(text: str) -> tuple[str, str]:
+    """Делит озвучку на «вопрос» и «остальное» по первому знаку «?» (или, если
+    его нет, по первой точке). Зелёный зажигаем на стыке этих частей."""
+    text = text.strip()
+    m = re.search(r"[?]+", text)
+    if not m:
+        m = re.search(r"\.\s", text)
+    if not m:
+        return text, ""
+    cut = m.end()
+    return text[:cut].strip(), text[cut:].strip()
+
+
 def _answers_cache_path(bilet: int) -> Path:
     return Path(__file__).parent / f"bilet{bilet}_answers.json"
 
@@ -450,7 +463,7 @@ def mux(webm: str, audio: str, out: str, total_dur: float) -> None:
 
 async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch: str,
                 engine: str, pad: float, reveal_frac: float, reveal_mode: str,
-                width: int, height: int,
+                width: int, height: int, limit: int,
                 chromium_path: str | None, do_inspect: bool, shot_dir: str) -> dict:
     questions = parse_questions(text)
     if not questions:
@@ -483,20 +496,36 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
     else:
         print(f"💾 Правильные ответы взяты из кэша ({_answers_cache_path(bilet).name}).")
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions))
+    # Предпросмотр: только первые N вопросов (быстрая проверка тайминга).
+    if limit and limit > 0:
+        questions = questions[:limit]
+        answers = answers[:limit]
+        print(f"👀 Предпросмотр: только первые {len(questions)} вопрос(ов).")
+
+    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="sitequiz_"))
     clips: list[tuple[str, float]] = []
     schedule: list[dict] = []
     for q in questions:
-        audio = await synth(q.narration())
-        p = tmp / f"q{q.number:02d}.mp3"; p.write_bytes(audio)
-        dur = media_duration(str(p))
-        clips.append((str(p), dur))
-        # Зелёный показываем на доле reveal_frac от озвучки.
-        schedule.append({"dur": round(dur, 3),
-                         "reveal_at": round(min(dur, dur * reveal_frac), 3)})
+        # Делим озвучку на «вопрос» и «пояснение» — зелёный зажигаем ровно на
+        # стыке (когда голос дочитал вопрос и переходит к ответу).
+        q_part, rest_part = _split_narration(q.narration())
+        a1 = await synth(q_part)
+        p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
+        d1 = media_duration(str(p1))
+        clips.append((str(p1), d1))
+        d2 = 0.0
+        if rest_part:
+            a2 = await synth(rest_part)
+            p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
+            d2 = media_duration(str(p2))
+            clips.append((str(p2), d2))
+        # Если знака «?» нет — откатываемся на долю reveal_frac.
+        reveal_at = d1 if rest_part else round(d1 * reveal_frac, 3)
+        schedule.append({"dur": round(d1 + d2, 3), "reveal_at": round(reveal_at, 3),
+                         "two": bool(rest_part)})
 
     total_dur = sum(s["dur"] + pad for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d}")
@@ -507,7 +536,12 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
                         width, height, pad)
 
     print("🔊 Склеиваю озвучку под тайминг…")
-    gaps = [pad] * len(clips)
+    # Пауза (pad) после последнего куска каждого вопроса.
+    gaps = []
+    for s in schedule:
+        if s["two"]:
+            gaps.append(0.0)  # между «вопросом» и «пояснением» без паузы
+        gaps.append(pad)      # пауза после конца вопроса
     audio_track = str(tmp / "track.m4a")
     concat_audio(clips, gaps, audio_track)
 
@@ -530,7 +564,9 @@ def main() -> None:
     ap.add_argument("--pad", type=float, default=1.4,
                     help="сколько секунд держать зелёный ответ после озвучки")
     ap.add_argument("--reveal", type=float, default=0.55,
-                    help="в какой доле озвучки показать зелёный (0.55 = чуть за серединой)")
+                    help="запасной вариант: доля озвучки для зелёного, если в вопросе нет «?»")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="записать только первые N вопросов (быстрый предпросмотр тайминга)")
     ap.add_argument("--reveal-mode", choices=["hint", "click"], default="hint",
                     help="hint = кнопкой сайта «Показать ответ» (по умолчанию); "
                          "click = жать правильный вариант (нужен текст с «Ответ: N»)")
@@ -551,7 +587,8 @@ def main() -> None:
         args.bilet, text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         reveal_mode=args.reveal_mode, width=args.width, height=args.height,
-        chromium_path=args.chromium_path, do_inspect=args.inspect, shot_dir=args.shots,
+        limit=args.limit, chromium_path=args.chromium_path,
+        do_inspect=args.inspect, shot_dir=args.shots,
     ))
 
 
