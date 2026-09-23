@@ -84,6 +84,10 @@ class Question:
         word = _ORDINAL_WORDS.get(self.number)
         return f"Вопрос {word}." if word else f"Вопрос {self.number}."
 
+    def spoken_question(self) -> str:
+        """«Вопрос первый. <вопрос>.» — без зачитывания вариантов (они на экране)."""
+        return f"{self.announce()}  {_close(self.text.strip())}"
+
     def narration(self) -> str:
         """Что произносит Дмитрий: вопрос -> (варианты, если есть) -> правильный
         ответ -> пояснение. Пунктуация оставлена — edge-tts сам делает паузы."""
@@ -706,11 +710,13 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     gaps: list[float] = []
     schedule: list[dict] = []
     for q in questions:
-        # Если задан «мой текст» (--speak) — читаем ЕГО прозой (без зачитывания
-        # вариантов); зелёный на стыке «вопрос?»/«остальное». Иначе — авто-озвучка.
+        # Если задан «мой текст» (--speak): ВОПРОС читаем авто (без вариантов),
+        # а ПОЯСНЕНИЕ — твоими словами. Иначе — полностью авто-озвучка.
         prose = speak_map.get(q.number)
         if prose:
-            intro_text, answer_text = _split_at_question(prose)
+            intro_text = q.spoken_question()          # вопрос — авто
+            _, my_expl = _split_at_question(prose)    # твоё пояснение (после «?»)
+            answer_text = my_expl or prose
         else:
             intro_text, answer_text = q.narration_intro(), q.narration_answer()
         # 1) вопрос (у --speak — твоими словами) — читаем ДО зелёного.
@@ -814,9 +820,8 @@ def main() -> None:
     speak_map = {}
     if args.speak:
         for q in parse_questions(read_text_any(args.speak)):
-            # Возвращаем «Вопрос первый…» в начало (парсер срезает заголовок).
-            speak_map[q.number] = f"{q.announce()}  {q.text.strip()}"
-        print(f"🗣  Голос читает твой текст (--speak): {len(speak_map)} вопрос(ов)")
+            speak_map[q.number] = q.text.strip()   # твоя проза (вопрос+пояснение)
+        print(f"🗣  Пояснение — твоими словами (--speak): {len(speak_map)} вопрос(ов)")
 
     asyncio.run(build(
         text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
