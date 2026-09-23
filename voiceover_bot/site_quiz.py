@@ -198,22 +198,24 @@ def _correct_from_hint(hint: str, options: list[str]) -> int:
     return best if best_score >= 0.5 else -1
 
 
-async def _wait_question_ready(page, timeout: float = 15.0) -> None:
-    """Ждёт полной отрисовки вопроса (текст, варианты, комментарий) — чтобы не
-    поймать кадр со спиннером загрузки."""
+async def _wait_question_ready(page, timeout: float = 10.0) -> None:
+    """Ждёт отрисовки вопроса: непустой текст вопроса, минимум 2 варианта с
+    текстом и подгруженный комментарий. Быстро — как только всё на месте."""
     try:
         await page.wait_for_function(
             """() => {
               const q = document.querySelector('.bilet__question');
-              const btns = document.querySelectorAll('.bilet__answer-btn');
-              const spin = document.querySelector('.waiting__zone:not(.visually-hidden)');
-              return q && q.textContent.trim().length > 3 && btns.length >= 2 && !spin;
+              const btns = [...document.querySelectorAll('.bilet__answer-btn')];
+              const okBtns = btns.length >= 2 && btns.every(b => b.textContent.trim().length > 0);
+              const hint = document.querySelector('.bilet__hint');
+              const okHint = hint && hint.textContent.trim().length > 0;
+              return q && q.textContent.trim().length > 3 && okBtns && okHint;
             }""",
             timeout=int(timeout * 1000))
     except Exception:
         pass
     # Дать картинке дорисоваться.
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(0.5)
 
 
 async def _goto_next(page) -> None:
@@ -253,6 +255,9 @@ async def inspect(url: str, bilet_hint: int, questions, executable_path: str | N
             table.append({"num": info["num"], "idx": idx,
                           "opts": info["opts"], "hint": info["hint"]})
             cur_num = info["num"]
+            mark = f"№{idx+1}" if idx >= 0 else "❓ не определён"
+            opt = info["opts"][idx][:55] if idx >= 0 else ""
+            print(f"   Вопрос {cur_num}: правильный {mark}  {opt}", flush=True)
             if i == 0:
                 # На 1-м вопросе жмём найденный правильный вариант — проверяем,
                 # что сайт красит его зелёным (это увидим на скриншоте).
@@ -272,11 +277,11 @@ async def inspect(url: str, bilet_hint: int, questions, executable_path: str | N
                 except Exception:
                     pass
 
-        print(f"\nОпределено правильных ответов ({sum(1 for r in table if r['idx']>=0)}/{n}):")
-        for r in table:
-            mark = f"№{r['idx']+1}" if r["idx"] >= 0 else "❓ НЕ ОПРЕДЕЛЁН"
-            opt = r["opts"][r["idx"]][:60] if r["idx"] >= 0 else ""
-            print(f"   Вопрос {r['num']}: правильный {mark}  {opt}")
+        got = sum(1 for r in table if r["idx"] >= 0)
+        print(f"\nИтог: определено {got}/{n} правильных ответов.")
+        if got < n:
+            print("   Не определились вопросы:",
+                  ", ".join(str(r["num"]) for r in table if r["idx"] < 0))
 
         print(f"\n🖼 Скриншоты в папке: {shot_dir}")
         print("   01_вопрос.png — вопрос 1, 02_зелёный.png — после нажатия (тут виден зелёный).")
