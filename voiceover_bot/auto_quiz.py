@@ -77,6 +77,12 @@ class Question:
     options: list[str] = field(default_factory=list)
     correct: int = 0            # индекс правильного варианта (0-based); -1 если неизвестно
     explanation: str = ""
+    image: str = ""             # имя файла картинки (необязательно)
+
+    def announce(self) -> str:
+        """«Вопрос первый.» словом — чтобы голос объявлял номер вопроса."""
+        word = _ORDINAL_WORDS.get(self.number)
+        return f"Вопрос {word}." if word else f"Вопрос {self.number}."
 
     def narration(self) -> str:
         """Что произносит Дмитрий: вопрос -> (варианты, если есть) -> правильный
@@ -93,9 +99,12 @@ class Question:
         # Точки между блоками = аккуратные паузы «среднего» темпа.
         return "  ".join(_close(p) for p in parts if p.strip())
 
-    def narration_intro(self) -> str:
-        """Первая часть озвучки: вопрос + варианты (её читаем ДО зелёного)."""
-        parts = [self.text.strip()]
+    def narration_intro(self, announce: bool = True) -> str:
+        """Первая часть озвучки: «Вопрос первый» + вопрос + варианты (ДО зелёного)."""
+        parts = []
+        if announce:
+            parts.append(self.announce())
+        parts.append(self.text.strip())
         for i, opt in enumerate(self.options, 1):
             parts.append(f"{i}. {opt.strip()}")
         return "  ".join(_close(p) for p in parts if p.strip())
@@ -122,6 +131,18 @@ _RU_ORDINALS = {
     "четырнадцатый": 14, "пятнадцатый": 15, "шестнадцатый": 16,
     "семнадцатый": 17, "восемнадцатый": 18, "девятнадцатый": 19, "двадцатый": 20,
 }
+# Обратное: номер -> слово (для объявления «Вопрос первый»).
+_ORDINAL_WORDS = {
+    1: "первый", 2: "второй", 3: "третий", 4: "четвёртый", 5: "пятый",
+    6: "шестой", 7: "седьмой", 8: "восьмой", 9: "девятый", 10: "десятый",
+    11: "одиннадцатый", 12: "двенадцатый", 13: "тринадцатый", 14: "четырнадцатый",
+    15: "пятнадцатый", 16: "шестнадцатый", 17: "семнадцатый", 18: "восемнадцатый",
+    19: "девятнадцатый", 20: "двадцатый",
+}
+
+# Строка с картинкой: «Картинка: 1.jpg» / «Изображение: ...» / «Фото: ...».
+_IMAGE = re.compile(r"^\s*(?:картинк\w*|изображени\w*|фото|рисун\w*|img|image)\s*[:\-—]\s*(.+\S)\s*$",
+                    re.IGNORECASE)
 
 # «Вопрос N» / «Вопрос №N» / «Вопрос седьмой» — число цифрой или словом; заголовок
 # может стоять на той же строке, что и текст вопроса.
@@ -233,6 +254,7 @@ def parse_questions(text: str) -> list[Question]:
         options: list[str] = []
         answer_raw = ""
         explanation = ""
+        image = ""
         first = block[0]
 
         # Номер вопроса из заголовка, если есть (цифрой или словом), и хвост строки.
@@ -246,11 +268,14 @@ def parse_questions(text: str) -> list[Question]:
         for line in body:
             if not line.strip():
                 continue
+            mi = _IMAGE.match(line)
             ma = _ANSWER.match(line)
             me = _EXPLAIN.match(line)
             mo = _OPTION.match(line)
             md = _DASH_OPTION.match(line)
-            if ma:
+            if mi:
+                image = mi.group(1).strip().strip('"\'')
+            elif ma:
                 answer_raw = ma.group(1)
             elif me:
                 explanation = (explanation + " " + me.group(1)).strip()
@@ -267,7 +292,7 @@ def parse_questions(text: str) -> list[Question]:
         q_text = " ".join(q_lines).strip() or f"Вопрос {number}"
         correct = _match_answer(answer_raw, options) if answer_raw else -1
         out.append(Question(number=number, text=q_text, options=options,
-                            correct=correct, explanation=explanation))
+                            correct=correct, explanation=explanation, image=image))
     return out
 
 
@@ -275,9 +300,12 @@ def parse_questions(text: str) -> list[Question]:
 #  HTML-страница «прохождения» билета
 # --------------------------------------------------------------------------- #
 
-def build_page(questions: list[Question], schedule: list[dict], title: str) -> str:
+def build_page(questions: list[Question], schedule: list[dict], title: str,
+               images: dict[int, str] | None = None) -> str:
     """Самодостаточная HTML-страница: показывает вопросы по расписанию, ведёт
-    курсор к правильному варианту, зажигает зелёным, крутит таймер/прогресс."""
+    курсор к правильному варианту, зажигает зелёным, крутит таймер/прогресс.
+    `images` — {индекс вопроса: data-URI картинки}."""
+    images = images or {}
     data = {
         "title": title,
         "total": len(questions),
@@ -288,8 +316,9 @@ def build_page(questions: list[Question], schedule: list[dict], title: str) -> s
                 "options": q.options,
                 "correct": q.correct,
                 "explanation": q.explanation,
+                "image": images.get(i, ""),
             }
-            for q in questions
+            for i, q in enumerate(questions)
         ],
         "schedule": schedule,   # [{dur, revealAt}] на каждый вопрос
     }
@@ -315,13 +344,13 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   body {
     font-family: "Segoe UI", Roboto, Arial, sans-serif;
     background: #eef2f7; color: #1b2733;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: flex-start; justify-content: center;
     overflow: hidden;
   }
   .card {
     width: 1100px; max-width: 96vw; background: #fff; border-radius: 18px;
-    box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 34px 40px 40px;
-    position: relative;
+    box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 22px 36px 26px;
+    margin: 16px 0; position: relative;
   }
   .top { display: flex; align-items: center; justify-content: space-between; }
   .badge {
@@ -329,22 +358,26 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     background: #eaf1ff; padding: 8px 16px; border-radius: 10px;
   }
   .timer { font-size: 20px; font-weight: 600; color: #55657a; }
-  .progress { height: 8px; background: #e6ecf5; border-radius: 6px; margin: 18px 0 26px; }
+  .progress { height: 7px; background: #e6ecf5; border-radius: 6px; margin: 12px 0 16px; }
   .progress > i { display: block; height: 100%; width: 0; background: #2b6cff; border-radius: 6px; }
-  .question { font-size: 30px; line-height: 1.35; font-weight: 600; min-height: 84px; }
-  .options { margin-top: 26px; display: grid; gap: 14px; }
+  .imgzone { text-align: center; margin: 2px 0 14px; }
+  .imgzone img { max-width: 100%; max-height: 300px; border-radius: 12px;
+                 border: 1px solid #e3e9f2; display: none; }
+  .imgzone img.show { display: inline-block; }
+  .question { font-size: 27px; line-height: 1.3; font-weight: 600; }
+  .options { margin-top: 16px; display: grid; gap: 10px; }
   .opt {
-    font-size: 24px; padding: 16px 20px; border: 2px solid #dce3ee; border-radius: 12px;
+    font-size: 22px; padding: 13px 18px; border: 2px solid #dce3ee; border-radius: 12px;
     background: #f7f9fc; transition: background .25s, border-color .25s, transform .1s;
   }
-  .opt .n { display: inline-block; min-width: 34px; font-weight: 700; color: #7a8aa0; }
+  .opt .n { display: inline-block; min-width: 32px; font-weight: 700; color: #7a8aa0; }
   .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
   .opt.correct .n { color: #2ea24a; }
   .opt.press { transform: scale(.99); }
   .explain {
-    margin-top: 22px; font-size: 21px; color: #3a4a5e; line-height: 1.4;
+    margin-top: 16px; font-size: 19px; color: #3a4a5e; line-height: 1.4;
     background: #f4f7fb; border-left: 4px solid #34c759; border-radius: 8px;
-    padding: 14px 18px; opacity: 0; transition: opacity .4s;
+    padding: 12px 16px; opacity: 0; transition: opacity .4s;
   }
   .explain.show { opacity: 1; }
   #cursor {
@@ -361,6 +394,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       <div class="timer" id="timer">00:00</div>
     </div>
     <div class="progress"><i id="bar"></i></div>
+    <div class="imgzone"><img id="qimg" alt=""></div>
     <div class="question" id="question"></div>
     <div class="options" id="options"></div>
     <div class="explain" id="explain"></div>
@@ -378,6 +412,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const qEl = document.getElementById("question");
   const optsEl = document.getElementById("options");
   const explEl = document.getElementById("explain");
+  const imgEl = document.getElementById("qimg");
   const cursor = document.getElementById("cursor");
 
   const fmt = s => {
@@ -389,6 +424,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
 
   function render(q) {
     badge.textContent = "Вопрос " + q.number + " / " + DATA.total;
+    if (q.image) { imgEl.src = q.image; imgEl.classList.add("show"); }
+    else { imgEl.classList.remove("show"); imgEl.removeAttribute("src"); }
     qEl.textContent = q.text;
     explEl.classList.remove("show");
     explEl.textContent = q.explanation || "";
@@ -579,9 +616,50 @@ def webm_to_mp4_with_audio(webm: str, audio: str, out: str,
 #  Оркестратор
 # --------------------------------------------------------------------------- #
 
+def _image_data_uri(path: Path) -> str:
+    """Файл картинки -> data:URI (встраиваем прямо в страницу, без путей)."""
+    import base64
+    import mimetypes
+    mime = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+    b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _resolve_images(questions: list[Question], images_dir: Path | None,
+                    base_dir: Path) -> dict[int, str]:
+    """Находит файлы картинок вопросов и превращает их в data:URI. Ищет по имени
+    из «Картинка:», иначе пробует <номер>.jpg/.png рядом с текстом или в --images."""
+    dirs = [d for d in (images_dir, base_dir) if d]
+    out: dict[int, str] = {}
+    for i, q in enumerate(questions):
+        candidates = []
+        if q.image:
+            candidates.append(q.image)
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            candidates.append(f"{q.number}{ext}")
+        found = None
+        for name in candidates:
+            for d in dirs:
+                p = (d / name)
+                if p.exists():
+                    found = p
+                    break
+            if found:
+                break
+        if found:
+            try:
+                out[i] = _image_data_uri(found)
+            except Exception as e:  # noqa: BLE001
+                print(f"   ⚠️ Картинка для вопроса {q.number} не прочиталась: {e}")
+        elif q.image:
+            print(f"   ⚠️ Картинка «{q.image}» для вопроса {q.number} не найдена.")
+    return out
+
+
 async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 engine: str, pad: float, reveal_frac: float,
                 width: int, height: int, title: str,
+                images_dir: Path | None = None, base_dir: Path | None = None,
                 chromium_path: str | None = None) -> dict:
     questions = parse_questions(text)
     if not questions:
@@ -590,7 +668,12 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     for q in questions:
         opt = f", вариантов: {len(q.options)}" if q.options else ""
         ans = f", ответ №{q.correct + 1}" if 0 <= q.correct < len(q.options) else ""
-        print(f"   {q.number:2}. {q.text[:60]}{'…' if len(q.text) > 60 else ''}{opt}{ans}")
+        img = " 🖼" if q.image else ""
+        print(f"   {q.number:2}. {q.text[:56]}{'…' if len(q.text) > 56 else ''}{opt}{ans}{img}")
+
+    images = _resolve_images(questions, images_dir, base_dir or Path("."))
+    if images:
+        print(f"🖼 Картинок подключено: {len(images)}")
 
     # Озвучка (с кэшем) — голос Дмитрия.
     if engine == "silero":
@@ -603,21 +686,31 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions))
+    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="autoquiz_"))
     clips: list[tuple[str, float]] = []
+    gaps: list[float] = []
     schedule: list[dict] = []
     for q in questions:
-        audio = await synth(q.narration())
-        p = tmp / f"q{q.number:02d}.mp3"
-        p.write_bytes(audio)
-        dur = media_duration(str(p))
-        scene = dur + pad
-        clips.append((str(p), dur))
-        schedule.append({"dur": round(scene, 3),
-                         "revealAt": round(min(dur, dur * reveal_frac + 0.3), 3)})
+        # 1) «Вопрос первый» + вопрос + варианты — читаем ДО зелёного.
+        a1 = await synth(q.narration_intro())
+        p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
+        d1 = media_duration(str(p1))
+        clips.append((str(p1), d1)); gaps.append(0.0)
+        # 2) «Правильный ответ» + пояснение — читаем, пока горит зелёный.
+        ans = q.narration_answer()
+        d2 = 0.0
+        if ans:
+            a2 = await synth(ans)
+            p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
+            d2 = media_duration(str(p2))
+            clips.append((str(p2), d2)); gaps.append(pad)
+        else:
+            gaps[-1] = pad
+        # Зелёный зажигаем ровно на стыке (после вопроса+вариантов).
+        schedule.append({"dur": round(d1 + d2 + pad, 3), "revealAt": round(d1, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
@@ -625,7 +718,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
 
     # Видео.
     print("🎥 Записываю прохождение билета в браузере…")
-    page_html = build_page(questions, schedule, title)
+    page_html = build_page(questions, schedule, title, images)
     webm_dir = str(tmp / "vid")
     Path(webm_dir).mkdir(exist_ok=True)
     webm = await record_video(page_html, schedule, webm_dir, width, height,
@@ -634,7 +727,6 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     # Аудио-дорожка: озвучка + паузы.
     print("🔊 Склеиваю озвучку под тайминг…")
     audio_track = str(tmp / "track.m4a")
-    gaps = [pad] * len(clips)
     concat_audio(clips, gaps, audio_track)
 
     print("🎬 Собираю финальное видео…")
@@ -660,6 +752,10 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--title", default="Билет ПДД")
+    ap.add_argument("--images", default=None,
+                    help="папка с картинками вопросов (по умолчанию — рядом с текстом)")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="сделать только первые N вопросов (быстрый предпросмотр)")
     ap.add_argument("--chromium-path", default=None,
                     help="путь к chrome.exe/chromium (обычно не нужен: Playwright берёт свой)")
     ap.add_argument("--dump-page", default=None,
@@ -668,19 +764,35 @@ def main() -> None:
 
     text = read_text_any(args.script)
     out = args.output or str(Path(args.script).with_suffix("").name + "_auto.mp4")
+    base_dir = Path(args.script).resolve().parent
+    images_dir = Path(args.images).resolve() if args.images else None
 
     if args.dump_page:
         questions = parse_questions(text)
+        if args.limit:
+            questions = questions[:args.limit]
+        imgs = _resolve_images(questions, images_dir, base_dir)
         sched = [{"dur": 6.0, "revealAt": 3.0} for _ in questions]
-        Path(args.dump_page).write_text(build_page(questions, sched, args.title),
+        Path(args.dump_page).write_text(build_page(questions, sched, args.title, imgs),
                                         encoding="utf-8")
         print(f"🖼 Страница сохранена: {args.dump_page} (открой в браузере — это макет)")
         return
+
+    if args.limit:
+        # Ограничение делаем на уровне текста: берём первые N блоков.
+        blocks = parse_questions(text)[:args.limit]
+        text = "\n\n".join(
+            f"Вопрос {q.number}\n" + (f"Картинка: {q.image}\n" if q.image else "") +
+            q.text + "\n" + "\n".join(f"{i+1}. {o}" for i, o in enumerate(q.options)) +
+            (f"\nОтвет: {q.correct+1}" if q.correct >= 0 else "") +
+            (f"\nПояснение: {q.explanation}" if q.explanation else "")
+            for q in blocks)
 
     asyncio.run(build(
         text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         width=args.width, height=args.height, title=args.title,
+        images_dir=images_dir, base_dir=base_dir,
         chromium_path=args.chromium_path,
     ))
 
