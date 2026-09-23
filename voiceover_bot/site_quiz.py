@@ -262,6 +262,100 @@ async def _goto_next(page) -> None:
     }""")
 
 
+async def dump_bilet(url: str, bilet: int, n: int, out_txt: str, img_dir: str | None,
+                     executable_path: str | None, width: int, height: int) -> None:
+    """Один заход на сайт: собирает ВЕСЬ билет в файл для auto_quiz — вопрос,
+    варианты, ПРАВИЛЬНЫЙ ответ (по зелёному самого сайта = 100% верно),
+    пояснение, и (если задан img_dir) скачивает картинку каждого вопроса.
+    Так ответы/варианты/картинки берутся из одного источника — сайта."""
+    import hashlib
+    from collections import Counter
+    from playwright.async_api import async_playwright
+
+    exe = executable_path or auto_quiz._find_chromium()
+    launch_kw = {"args": ["--no-sandbox"]}
+    if exe:
+        launch_kw["executable_path"] = exe
+    if img_dir:
+        Path(img_dir).mkdir(parents=True, exist_ok=True)
+
+    rows: list[dict] = []
+    img_hash: dict[int, tuple[str, str]] = {}
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(**launch_kw)
+        ctx = await browser.new_context(viewport={"width": width, "height": height})
+        page = await ctx.new_page()
+        await _prepare_page(page, url)
+        for i in range(n):
+            await _wait_question_ready(page)
+            info = await _read_hint_and_options(page)
+            num = info["num"] or (i + 1)
+            # Правильный: жмём догадку, читаем зелёный (ответ сайта).
+            guess = _correct_from_hint(info["hint"], info["opts"])
+            await _click_answer(page, guess if guess >= 0 else 0)
+            await asyncio.sleep(0.8)
+            green = await _find_green_option(page)
+            correct = green if green >= 0 else (guess if guess >= 0 else 0)
+            rows.append({"num": num, "question": info["question"],
+                         "options": info["opts"], "correct": correct,
+                         "expl": info["hint"]})
+            print(f"   Вопрос {num}: {len(info['opts'])} вар., верный №{correct+1}", flush=True)
+            # Картинка.
+            if img_dir:
+                src = await page.evaluate(
+                    "() => { const im=document.querySelector('.bilet__img'); return im?im.src:''; }")
+                if src and not src.startswith("data:"):
+                    try:
+                        body = await (await page.request.get(src)).body()
+                        ext = ".png" if src.lower().split("?")[0].endswith(".png") else ".jpg"
+                        p = Path(img_dir) / f"{num}{ext}"
+                        p.write_bytes(body)
+                        img_hash[num] = (str(p), hashlib.md5(body).hexdigest())
+                    except Exception:
+                        pass
+            if i < n - 1:
+                cur = info["num"]
+                await _goto_next(page)
+                try:
+                    await page.wait_for_function(
+                        "(k)=>{const e=document.querySelector('.bilet__qs-num');"
+                        "return e && parseInt(e.textContent)!==k;}",
+                        arg=cur, timeout=6000)
+                except Exception:
+                    pass
+        await ctx.close()
+        await browser.close()
+
+    # Убираем картинки-заглушки (одинаковые у нескольких вопросов).
+    have_img = set()
+    if img_dir:
+        counts = Counter(h for _, h in img_hash.values())
+        for num, (path, h) in img_hash.items():
+            if counts[h] > 1:
+                Path(path).unlink(missing_ok=True)
+            else:
+                have_img.add(num)
+
+    # Пишем файл билета.
+    lines = []
+    for r in rows:
+        lines.append(f"Вопрос {r['num']}")
+        if r["num"] in have_img:
+            lines.append(f"Картинка: {r['num']}.jpg")
+        lines.append(r["question"])
+        for k, o in enumerate(r["options"], 1):
+            lines.append(f"{k}. {o}")
+        lines.append(f"Ответ: {r['correct'] + 1}")
+        if r["expl"]:
+            lines.append(f"Пояснение: {r['expl']}")
+        lines.append("")
+    Path(out_txt).write_text("\n".join(lines), encoding="utf-8")
+    print(f"\n💾 Билет собран с сайта: {out_txt} ({len(rows)} вопросов, картинок: {len(have_img)})")
+    print("   Ответы — по зелёному самого сайта (верные). Теперь делай видео:")
+    print(f'   python auto_quiz.py "{out_txt}" bilet{bilet}.mp4 --speak твой.txt' +
+          (f' --images "{img_dir}"' if img_dir else ""))
+
+
 async def save_images(url: str, n: int, out_dir: str, executable_path: str | None,
                       width: int, height: int) -> None:
     """Один заход на сайт: скачивает картинку каждого вопроса в out_dir/<номер>.jpg.
@@ -626,6 +720,9 @@ def main() -> None:
     ap.add_argument("output", nargs="?", default=None, help="итоговый .mp4")
     ap.add_argument("--save-images", dest="save_images", default=None,
                     help="только скачать картинки билета с сайта в указанную папку (без видео)")
+    ap.add_argument("--dump-bilet", dest="dump_bilet", default=None,
+                    help="собрать билет с сайта в .txt (вопросы, варианты, ВЕРНЫЙ ответ, "
+                         "картинки) для auto_quiz — без записи видео")
     ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural")
     ap.add_argument("--rate", default="+0%", help="скорость речи, напр. +8%% (средний темп)")
@@ -648,6 +745,15 @@ def main() -> None:
     ap.add_argument("--shots", default="разведка_кадры",
                     help="папка для скриншотов разведки")
     args = ap.parse_args()
+
+    if args.dump_bilet:
+        img_dir = args.save_images  # можно указать и папку картинок одновременно
+        print(f"📥 Собираю билет {args.bilet} с сайта -> {args.dump_bilet}"
+              + (f" (картинки в {img_dir})" if img_dir else ""))
+        asyncio.run(dump_bilet(BILET_URL.format(n=args.bilet), args.bilet, 20,
+                               args.dump_bilet, img_dir, args.chromium_path,
+                               args.width, args.height))
+        return
 
     if args.save_images:
         print(f"🖼 Скачиваю картинки билета {args.bilet} с сайта в: {args.save_images}")

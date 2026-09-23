@@ -361,10 +361,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     font-size: 22px; font-weight: 700; color: #2b6cff;
     background: #eaf1ff; padding: 8px 16px; border-radius: 10px;
   }
-  .timer { font-size: 20px; font-weight: 600; color: #55657a; }
-  .progress { height: 7px; background: #e6ecf5; border-radius: 6px; margin: 12px 0 16px; }
-  .progress > i { display: block; height: 100%; width: 0; background: #2b6cff; border-radius: 6px; }
-  .imgzone { text-align: center; margin: 2px 0 14px; }
+  .timer { font-size: 22px; font-weight: 700; color: #55657a; }
+  .imgzone { text-align: center; margin: 16px 0 14px; }
   .imgzone img { max-width: 100%; max-height: 300px; border-radius: 12px;
                  border: 1px solid #e3e9f2; display: none; }
   .imgzone img.show { display: inline-block; }
@@ -392,7 +390,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       <div class="badge" id="badge">Вопрос 1</div>
       <div class="timer" id="timer">00:00</div>
     </div>
-    <div class="progress"><i id="bar"></i></div>
     <div class="imgzone"><img id="qimg" alt=""></div>
     <div class="question" id="question"></div>
     <div class="options" id="options"></div>
@@ -405,7 +402,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const DATA = JSON.parse(document.getElementById("payload").textContent);
   const badge = document.getElementById("badge");
   const timer = document.getElementById("timer");
-  const bar = document.getElementById("bar");
   const qEl = document.getElementById("question");
   const optsEl = document.getElementById("options");
   const explEl = document.getElementById("explain");
@@ -450,7 +446,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   function tick() {
     const t = (performance.now() - clockStart) / 1000;
     const cur = Math.min(clockDur, t);
-    bar.style.width = (100 * (clockBase + cur) / DATA._totalDur) + "%";
     timer.textContent = fmt(DATA._elapsedBefore + cur);
     raf = requestAnimationFrame(tick);
   }
@@ -703,6 +698,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         else:
             intro_text, answer_text = q.narration_intro(), q.narration_answer()
         tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
+        mid = 0.0
         # 1) вопрос (у --speak — твоими словами).
         a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
@@ -712,15 +708,17 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         ans = answer_text
         d2 = 0.0
         if ans:
-            gaps.append(0.0)            # между вопросом и пояснением — без паузы
+            mid = 0.45                 # короткая пауза-вдох между вопросом и пояснением
+            gaps.append(mid)
             a2 = await synth(ans)
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
             d2 = media_duration(str(p2))
             clips.append((str(p2), d2))
         gaps.append(tail)
         # Порядок: дочитал всё -> пауза before -> ЗЕЛЁНЫЙ -> пауза pad -> след. вопрос.
-        reveal_at = d1 + d2 + before
-        schedule.append({"dur": round(d1 + d2 + before + pad, 3), "revealAt": round(reveal_at, 3)})
+        reveal_at = d1 + mid + d2 + before
+        schedule.append({"dur": round(d1 + mid + d2 + before + pad, 3),
+                         "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
@@ -753,7 +751,8 @@ def main() -> None:
     ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural",
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
-    ap.add_argument("--rate", default="+0%", help="скорость речи, напр. +8%% (средний темп)")
+    ap.add_argument("--rate", default="-8%",
+                    help="скорость речи (по умолчанию -8%% — спокойный средний темп)")
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--pad", type=float, default=1.5,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
