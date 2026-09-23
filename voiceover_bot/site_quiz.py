@@ -180,22 +180,38 @@ async def _read_hint_and_options(page) -> dict:
     }""")
 
 
-def _correct_from_hint(hint: str, options: list[str]) -> int:
-    """Правильный вариант = тот, чьи слова сильнее всего встречаются в
-    комментарии к вопросу (комментарий цитирует верный ответ). -1 если неясно."""
-    hint_words = set(_norm(hint).split())
-    if not hint_words or not options:
-        return -1
-    best, best_score = -1, 0.0
-    for i, opt in enumerate(options):
-        ow = set(_norm(opt).split())
-        ow = {w for w in ow if len(w) > 2}   # выкидываем короткие слова-связки
-        if not ow:
+def _stems(text: str) -> set[str]:
+    """Грубые «основы» слов: без окончаний (первые 6 букв), короткие/служебные
+    слова выкидываем. Так «обязан» и «обязаны» совпадут (русская морфология)."""
+    out = set()
+    for w in _norm(text).split():
+        if len(w) <= 3:
             continue
-        score = len(ow & hint_words) / len(ow)
-        if score > best_score:
-            best, best_score = i, score
-    return best if best_score >= 0.5 else -1
+        out.add(w[:6])
+    return out
+
+
+def _correct_from_hint(hint: str, options: list[str], extra: str = "") -> int:
+    """Правильный вариант = тот, чьи ОСНОВЫ слов сильнее всего встречаются в
+    комментарии к вопросу (он цитирует верный ответ). `extra` — доп. текст
+    (твоё пояснение), чтобы добить короткие варианты. -1 если неясно."""
+    hint_stems = _stems(hint) | _stems(extra)
+    if not hint_stems or not options:
+        return -1
+    scores = []
+    for i, opt in enumerate(options):
+        os_ = _stems(opt)
+        if not os_:
+            scores.append((0.0, i))
+            continue
+        scores.append((len(os_ & hint_stems) / len(os_), i))
+    scores.sort(reverse=True)
+    best_score, best = scores[0]
+    second = scores[1][0] if len(scores) > 1 else 0.0
+    # Берём, если уверенно (>=0.5) или заметно лучше второго варианта.
+    if best_score >= 0.5 or (best_score >= 0.34 and best_score - second >= 0.2):
+        return best
+    return -1
 
 
 async def _wait_question_ready(page, timeout: float = 10.0) -> None:
@@ -251,7 +267,8 @@ async def inspect(url: str, bilet_hint: int, questions, executable_path: str | N
         for i in range(n):
             await _wait_question_ready(page)
             info = await _read_hint_and_options(page)
-            idx = _correct_from_hint(info["hint"], info["opts"])
+            extra = questions[i].narration() if i < len(questions) else ""
+            idx = _correct_from_hint(info["hint"], info["opts"], extra)
             table.append({"num": info["num"], "idx": idx,
                           "opts": info["opts"], "hint": info["hint"]})
             cur_num = info["num"]
@@ -328,7 +345,7 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
             if reveal_mode == "text":
                 idx = _best_answer_index(q.correct_text(), info["opts"])
             if idx < 0:
-                idx = _correct_from_hint(info["hint"], info["opts"])
+                idx = _correct_from_hint(info["hint"], info["opts"], q.narration())
             # Читаем вопрос — держим до момента показа ответа.
             await asyncio.sleep(seg["reveal_at"])
             # Зажигаем зелёный: жмём найденный правильный вариант.
