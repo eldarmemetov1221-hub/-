@@ -157,13 +157,63 @@ async def _click_answer(page, index: int) -> bool:
 
 
 async def _show_answer(page) -> bool:
-    """Жмёт кнопку сайта «Показать ответ» — она подсвечивает правильный вариант
-    (без ответа мышкой, без «ошибки» в аккаунт)."""
+    """Жмёт кнопку сайта «Показать ответ» — открывает текстовый комментарий."""
     return bool(await page.evaluate("""() => {
       const b = document.querySelector('.bilet__hint-btn');
       if (b) { b.click(); return true; }
       return false;
     }"""))
+
+
+async def _read_hint_and_options(page) -> dict:
+    """Читает СКРЫТЫЙ комментарий (ГИБДД/сайта) к текущему вопросу и варианты.
+    В комментарии правильный ответ описан почти дословно — по нему и находим
+    правильный вариант, ничего не нажимая наугад."""
+    return await page.evaluate("""() => {
+      const t = el => el ? el.textContent.trim() : '';
+      const hint = (t(document.querySelector('.bilet__hint')) + ' ' +
+                    t(document.querySelector('.bilet__expl-hint-text'))).trim();
+      const opts = [...document.querySelectorAll('.bilet__answer-list .bilet__answer-btn')]
+                     .map(b => b.textContent.trim());
+      const numEl = document.querySelector('.bilet__qs-num');
+      return {hint, opts, num: numEl ? parseInt(numEl.textContent) : null};
+    }""")
+
+
+def _correct_from_hint(hint: str, options: list[str]) -> int:
+    """Правильный вариант = тот, чьи слова сильнее всего встречаются в
+    комментарии к вопросу (комментарий цитирует верный ответ). -1 если неясно."""
+    hint_words = set(_norm(hint).split())
+    if not hint_words or not options:
+        return -1
+    best, best_score = -1, 0.0
+    for i, opt in enumerate(options):
+        ow = set(_norm(opt).split())
+        ow = {w for w in ow if len(w) > 2}   # выкидываем короткие слова-связки
+        if not ow:
+            continue
+        score = len(ow & hint_words) / len(ow)
+        if score > best_score:
+            best, best_score = i, score
+    return best if best_score >= 0.5 else -1
+
+
+async def _wait_question_ready(page, timeout: float = 15.0) -> None:
+    """Ждёт полной отрисовки вопроса (текст, варианты, комментарий) — чтобы не
+    поймать кадр со спиннером загрузки."""
+    try:
+        await page.wait_for_function(
+            """() => {
+              const q = document.querySelector('.bilet__question');
+              const btns = document.querySelectorAll('.bilet__answer-btn');
+              const spin = document.querySelector('.waiting__zone:not(.visually-hidden)');
+              return q && q.textContent.trim().length > 3 && btns.length >= 2 && !spin;
+            }""",
+            timeout=int(timeout * 1000))
+    except Exception:
+        pass
+    # Дать картинке дорисоваться.
+    await asyncio.sleep(0.6)
 
 
 async def _goto_next(page) -> None:
@@ -193,68 +243,44 @@ async def inspect(url: str, bilet_hint: int, questions, executable_path: str | N
         page = await ctx.new_page()
         await _prepare_page(page, url)
 
-        cur = await _read_current(page)
-        print("── Разведка сайта ──")
-        print("Вопрос №:", cur["num"])
-        print("Текст:", cur["question"][:90])
-        print("Вариантов на сайте:", len(cur["answers"]))
-        for i, a in enumerate(cur["answers"], 1):
-            print(f"   {i}. {a[:80]}")
-        await page.screenshot(path=str(Path(shot_dir) / "01_вопрос.png"))
+        print("── Разведка сайта: прохожу все 20 вопросов, определяю правильные ответы ──")
+        n = len(questions) or 20
+        table = []
+        for i in range(n):
+            await _wait_question_ready(page)
+            info = await _read_hint_and_options(page)
+            idx = _correct_from_hint(info["hint"], info["opts"])
+            table.append({"num": info["num"], "idx": idx,
+                          "opts": info["opts"], "hint": info["hint"]})
+            cur_num = info["num"]
+            if i == 0:
+                # На 1-м вопросе жмём найденный правильный вариант — проверяем,
+                # что сайт красит его зелёным (это увидим на скриншоте).
+                await page.screenshot(path=str(Path(shot_dir) / "01_вопрос.png"))
+                if idx >= 0:
+                    await _click_answer(page, idx)
+                    await asyncio.sleep(1.3)
+                await page.screenshot(path=str(Path(shot_dir) / "02_зелёный.png"))
+            # Листаем дальше.
+            if i < n - 1:
+                await _goto_next(page)
+                try:
+                    await page.wait_for_function(
+                        "(k)=>{const e=document.querySelector('.bilet__qs-num');"
+                        "return e && parseInt(e.textContent)!==k;}",
+                        arg=cur_num, timeout=6000)
+                except Exception:
+                    pass
 
-        # Главное: жмём кнопку сайта «Показать ответ» и смотрим, ЧТО меняется —
-        # подсвечивает ли она правильный вариант (и каким классом/цветом).
-        before = await page.evaluate("""() => [...document.querySelectorAll('.bilet__answer-item')]
-            .map(el => el.className + ' | ' + ((el.querySelector('.bilet__answer-btn')||{}).className||''))""")
-        shown = await _show_answer(page)
-        await asyncio.sleep(1.2)
-        after = await page.evaluate("""() => {
-          const items = [...document.querySelectorAll('.bilet__answer-item')];
-          const num = document.querySelector('.bilet__qs-num');
-          const green = items.map(el => {
-            const btn = el.querySelector('.bilet__answer-btn');
-            const cs = btn ? getComputedStyle(btn) : getComputedStyle(el);
-            return {cls: el.className, btnCls: btn?btn.className:'', bg: cs.backgroundColor, bd: cs.borderColor};
-          });
-          return {num: num?num.textContent.trim():null, green};
-        }""")
-        print(f"\nКнопка «Показать ответ»: {'нажалась' if shown else 'НЕ найдена'}")
-        print("Номер вопроса после неё:", after["num"], "(если тот же — не листает, хорошо)")
-        print("Что стало с вариантами (ищем зелёный фон/рамку):")
-        for i, g in enumerate(after["green"], 1):
-            print(f"   {i}. cls='{g['cls']}' btn='{g['btnCls']}' bg={g['bg']} border={g['bd']}")
-        await page.screenshot(path=str(Path(shot_dir) / "02_показать_ответ.png"))
-
-        # Пытаемся достать данные билета с сайта (там лежат правильные ответы) —
-        # на случай, если «Показать ответ» не красит вариант.
-        data = await page.evaluate("""(n) => {
-          try {
-            const out = {globals: []};
-            for (const k in window) {
-              if (/bilet|coll|quest|answer|data/i.test(k)) {
-                const t = typeof window[k];
-                if (t !== 'undefined') out.globals.push(k + ':' + t);
-              }
-            }
-            if (typeof window.createBiletColl === 'function') {
-              try {
-                const c = window.createBiletColl(n);
-                out.collType = Array.isArray(c) ? 'array['+c.length+']' : typeof c;
-                out.sample = JSON.stringify(c, (k,v)=> (v&&v.nodeType)?undefined:v).slice(0, 1200);
-              } catch(e) { out.collErr = String(e); }
-            }
-            return out;
-          } catch(e) { return {err: String(e)}; }
-        }""", int(bilet_hint))
-        print("\nГлобальные переменные сайта (с ответами?):", ", ".join(data.get("globals", []))[:300])
-        if data.get("collType"):
-            print("createBiletColl вернул:", data["collType"])
-            print("Кусок данных:", data.get("sample", "")[:800])
-        if data.get("collErr"):
-            print("createBiletColl ошибка:", data["collErr"])
+        print(f"\nОпределено правильных ответов ({sum(1 for r in table if r['idx']>=0)}/{n}):")
+        for r in table:
+            mark = f"№{r['idx']+1}" if r["idx"] >= 0 else "❓ НЕ ОПРЕДЕЛЁН"
+            opt = r["opts"][r["idx"]][:60] if r["idx"] >= 0 else ""
+            print(f"   Вопрос {r['num']}: правильный {mark}  {opt}")
 
         print(f"\n🖼 Скриншоты в папке: {shot_dir}")
-        print("   Пришли мне вывод выше + оба скриншота — по ним докручу зелёный.")
+        print("   01_вопрос.png — вопрос 1, 02_зелёный.png — после нажатия (тут виден зелёный).")
+        print("   Если ответы верные и на 02 горит зелёный — запускай БЕЗ --inspect, будет видео.")
         await ctx.close()
         await browser.close()
 
@@ -288,21 +314,24 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
         await _prepare_page(page, url)
 
         for i, (q, seg) in enumerate(zip(questions, schedule)):
-            cur = await _read_current(page)
             expected = i + 1
+            await _wait_question_ready(page)
+            info = await _read_hint_and_options(page)
+            # Находим правильный вариант: 'text' — по твоему тексту (если есть
+            # «Ответ: N»); иначе (auto) — по скрытому комментарию сайта.
+            idx = -1
+            if reveal_mode == "text":
+                idx = _best_answer_index(q.correct_text(), info["opts"])
+            if idx < 0:
+                idx = _correct_from_hint(info["hint"], info["opts"])
             # Читаем вопрос — держим до момента показа ответа.
             await asyncio.sleep(seg["reveal_at"])
-            # Зажигаем зелёный.
-            if reveal_mode == "click":
-                idx = _best_answer_index(q.correct_text(), cur["answers"])
-                if idx >= 0:
-                    await _click_answer(page, idx)
-                else:
-                    print(f"   ⚠️ Вопрос {expected}: вариант «{q.correct_text()[:40]}» "
-                          f"не найден — показываю «Показать ответ».")
-                    await _show_answer(page)
+            # Зажигаем зелёный: жмём найденный правильный вариант.
+            if idx >= 0:
+                await _click_answer(page, idx)
             else:
-                await _show_answer(page)
+                print(f"   ⚠️ Вопрос {expected}: не смог уверенно определить правильный "
+                      f"вариант — показываю без зелёного.")
             # Дочитываем пояснение, зелёный висит.
             await asyncio.sleep(seg["dur"] - seg["reveal_at"] + pad)
             # Листаем дальше (если не последний и сайт не перелистнул сам).
