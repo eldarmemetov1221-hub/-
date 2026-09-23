@@ -1,0 +1,7 @@
+# Для авто-записи билета (auto_quiz.py) — озвучка + запись прохождения в браузере.
+# Установить один раз:
+#   pip install -r requirements-auto.txt
+#   python -m playwright install chromium
+edge-tts>=6.1
+imageio-ffmpeg>=0.5
+playwright>=1.40
