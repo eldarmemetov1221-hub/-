@@ -657,7 +657,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 width: int, height: int, title: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
                 speak_map: dict[int, str] | None = None, green_frac: float = 0.6,
-                chromium_path: str | None = None) -> dict:
+                before: float = 1.5, chromium_path: str | None = None) -> dict:
     speak_map = speak_map or {}
     green_frac = min(1.0, max(0.0, green_frac))
     questions = parse_questions(text)
@@ -702,24 +702,25 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             answer_text = my_expl or prose
         else:
             intro_text, answer_text = q.narration_intro(), q.narration_answer()
-        # 1) вопрос (у --speak — твоими словами) — читаем ДО зелёного.
+        tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
+        # 1) вопрос (у --speak — твоими словами).
         a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
         d1 = media_duration(str(p1))
-        clips.append((str(p1), d1)); gaps.append(0.0)
-        # 2) ответ/пояснение — читаем, пока горит зелёный.
+        clips.append((str(p1), d1))
+        # 2) пояснение/ответ.
         ans = answer_text
         d2 = 0.0
         if ans:
+            gaps.append(0.0)            # между вопросом и пояснением — без паузы
             a2 = await synth(ans)
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
             d2 = media_duration(str(p2))
-            clips.append((str(p2), d2)); gaps.append(pad)
-        else:
-            gaps[-1] = pad
-        # Зелёный зажигаем во время пояснения: d1 (конец вопроса) + доля пояснения.
-        reveal_at = d1 + d2 * green_frac
-        schedule.append({"dur": round(d1 + d2 + pad, 3), "revealAt": round(reveal_at, 3)})
+            clips.append((str(p2), d2))
+        gaps.append(tail)
+        # Порядок: дочитал всё -> пауза before -> ЗЕЛЁНЫЙ -> пауза pad -> след. вопрос.
+        reveal_at = d1 + d2 + before
+        schedule.append({"dur": round(d1 + d2 + before + pad, 3), "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
@@ -754,8 +755,10 @@ def main() -> None:
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
     ap.add_argument("--rate", default="+0%", help="скорость речи, напр. +8%% (средний темп)")
     ap.add_argument("--pitch", default="+0Hz")
-    ap.add_argument("--pad", type=float, default=1.1,
-                    help="пауза после озвучки вопроса, сек (чтобы зелёный ответ повисел)")
+    ap.add_argument("--pad", type=float, default=1.5,
+                    help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
+    ap.add_argument("--before", type=float, default=1.5,
+                    help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
     ap.add_argument("--reveal", type=float, default=0.5, help="(не используется)")
     ap.add_argument("--green", type=float, default=0.6,
                     help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
@@ -814,7 +817,7 @@ def main() -> None:
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         width=args.width, height=args.height, title=args.title,
         images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
-        green_frac=args.green, chromium_path=args.chromium_path,
+        green_frac=args.green, before=args.before, chromium_path=args.chromium_path,
     ))
 
 

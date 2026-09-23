@@ -262,6 +262,72 @@ async def _goto_next(page) -> None:
     }""")
 
 
+async def save_images(url: str, n: int, out_dir: str, executable_path: str | None,
+                      width: int, height: int) -> None:
+    """Один заход на сайт: скачивает картинку каждого вопроса в out_dir/<номер>.jpg.
+    Картинки-заглушки («вопрос без изображения») отсеиваются (у них одинаковые
+    байты) — их auto_quiz просто не покажет."""
+    import hashlib
+    from playwright.async_api import async_playwright
+
+    exe = executable_path or auto_quiz._find_chromium()
+    launch_kw = {"args": ["--no-sandbox"]}
+    if exe:
+        launch_kw["executable_path"] = exe
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    saved: dict[int, tuple[str, str]] = {}   # номер -> (путь, md5)
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(**launch_kw)
+        ctx = await browser.new_context(viewport={"width": width, "height": height})
+        page = await ctx.new_page()
+        await _prepare_page(page, url)
+        for i in range(n):
+            await _wait_question_ready(page)
+            info = await _read_hint_and_options(page)
+            num = info["num"] or (i + 1)
+            src = await page.evaluate(
+                "() => { const im=document.querySelector('.bilet__img'); return im?im.src:''; }")
+            if src and not src.startswith("data:"):
+                try:
+                    resp = await page.request.get(src)
+                    data = await resp.body()
+                    ext = ".png" if src.lower().split("?")[0].endswith(".png") else ".jpg"
+                    p = Path(out_dir) / f"{num}{ext}"
+                    p.write_bytes(data)
+                    saved[num] = (str(p), hashlib.md5(data).hexdigest())
+                    print(f"   Вопрос {num}: картинка сохранена", flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f"   Вопрос {num}: не скачалась ({e})", flush=True)
+            else:
+                print(f"   Вопрос {num}: без картинки", flush=True)
+            if i < n - 1:
+                cur = info["num"]
+                await _goto_next(page)
+                try:
+                    await page.wait_for_function(
+                        "(k)=>{const e=document.querySelector('.bilet__qs-num');"
+                        "return e && parseInt(e.textContent)!==k;}",
+                        arg=cur, timeout=6000)
+                except Exception:
+                    pass
+        await ctx.close()
+        await browser.close()
+
+    # Отсеиваем заглушки (одинаковые картинки у нескольких вопросов).
+    from collections import Counter
+    counts = Counter(h for _, h in saved.values())
+    removed = 0
+    for num, (path, h) in list(saved.items()):
+        if counts[h] > 1:
+            Path(path).unlink(missing_ok=True)
+            removed += 1
+    real = len(saved) - removed
+    print(f"\n💾 Картинки в папке: {out_dir} (реальных: {real}, заглушек убрано: {removed})")
+    print("   Теперь: python auto_quiz.py bilet6.txt bilet6.mp4 --speak твой.txt --images "
+          f'"{out_dir}"')
+
+
 async def discover_answers(page, questions, shot_dir: str | None = None) -> list[dict]:
     """Надёжно узнаёт правильные ответы: на каждом вопросе жмёт вариант (по
     подсказке-догадке, чтобы реже мазать) и читает, КАКОЙ загорелся зелёным —
@@ -555,8 +621,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Авто-запись билета прямо с сайта pdd-exam.ru + озвучка Дмитрия")
     ap.add_argument("bilet", type=int, help="номер билета (например 6)")
-    ap.add_argument("script", help=".txt с 20 вопросами (вопрос, варианты, ответ, пояснение)")
+    ap.add_argument("script", nargs="?", default=None,
+                    help=".txt с 20 вопросами (не нужен для --save-images)")
     ap.add_argument("output", nargs="?", default=None, help="итоговый .mp4")
+    ap.add_argument("--save-images", dest="save_images", default=None,
+                    help="только скачать картинки билета с сайта в указанную папку (без видео)")
     ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural")
     ap.add_argument("--rate", default="+0%", help="скорость речи, напр. +8%% (средний темп)")
@@ -580,6 +649,14 @@ def main() -> None:
                     help="папка для скриншотов разведки")
     args = ap.parse_args()
 
+    if args.save_images:
+        print(f"🖼 Скачиваю картинки билета {args.bilet} с сайта в: {args.save_images}")
+        asyncio.run(save_images(BILET_URL.format(n=args.bilet), 20, args.save_images,
+                                args.chromium_path, args.width, args.height))
+        return
+
+    if not args.script:
+        ap.error("нужен файл с вопросами (или используй --save-images для скачивания картинок)")
     text = read_text_any(args.script)
     out = args.output or f"bilet{args.bilet}_auto.mp4"
 
