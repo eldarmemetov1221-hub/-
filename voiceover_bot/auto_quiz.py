@@ -656,11 +656,23 @@ def _resolve_images(questions: list[Question], images_dir: Path | None,
     return out
 
 
+def _split_at_question(prose: str) -> tuple[str, str]:
+    """Делит прозу на «вопрос» и «остальное» по первому «?» (иначе по первой
+    точке). Зелёный зажигаем на стыке."""
+    prose = prose.strip()
+    m = re.search(r"[?]+", prose) or re.search(r"\.\s", prose)
+    if not m:
+        return prose, ""
+    return prose[:m.end()].strip(), prose[m.end():].strip()
+
+
 async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 engine: str, pad: float, reveal_frac: float,
                 width: int, height: int, title: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
+                speak_map: dict[int, str] | None = None,
                 chromium_path: str | None = None) -> dict:
+    speak_map = speak_map or {}
     questions = parse_questions(text)
     if not questions:
         raise SystemExit("❌ Не удалось разобрать ни одного вопроса из текста.")
@@ -694,13 +706,20 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     gaps: list[float] = []
     schedule: list[dict] = []
     for q in questions:
-        # 1) «Вопрос первый» + вопрос + варианты — читаем ДО зелёного.
-        a1 = await synth(q.narration_intro())
+        # Если задан «мой текст» (--speak) — читаем ЕГО прозой (без зачитывания
+        # вариантов); зелёный на стыке «вопрос?»/«остальное». Иначе — авто-озвучка.
+        prose = speak_map.get(q.number)
+        if prose:
+            intro_text, answer_text = _split_at_question(prose)
+        else:
+            intro_text, answer_text = q.narration_intro(), q.narration_answer()
+        # 1) вопрос (у --speak — твоими словами) — читаем ДО зелёного.
+        a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
         d1 = media_duration(str(p1))
         clips.append((str(p1), d1)); gaps.append(0.0)
-        # 2) «Правильный ответ» + пояснение — читаем, пока горит зелёный.
-        ans = q.narration_answer()
+        # 2) ответ/пояснение — читаем, пока горит зелёный.
+        ans = answer_text
         d2 = 0.0
         if ans:
             a2 = await synth(ans)
@@ -754,6 +773,9 @@ def main() -> None:
     ap.add_argument("--title", default="Билет ПДД")
     ap.add_argument("--images", default=None,
                     help="папка с картинками вопросов (по умолчанию — рядом с текстом)")
+    ap.add_argument("--speak", default=None,
+                    help="файл с ТВОИМ текстом для голоса (проза по вопросам); варианты "
+                         "тогда вслух не читаются, а берётся твоя формулировка")
     ap.add_argument("--limit", type=int, default=0,
                     help="сделать только первые N вопросов (быстрый предпросмотр)")
     ap.add_argument("--chromium-path", default=None,
@@ -788,11 +810,19 @@ def main() -> None:
             (f"\nПояснение: {q.explanation}" if q.explanation else "")
             for q in blocks)
 
+    # «Мой текст» для голоса: проза по вопросам, ключ — номер вопроса.
+    speak_map = {}
+    if args.speak:
+        for q in parse_questions(read_text_any(args.speak)):
+            # Возвращаем «Вопрос первый…» в начало (парсер срезает заголовок).
+            speak_map[q.number] = f"{q.announce()}  {q.text.strip()}"
+        print(f"🗣  Голос читает твой текст (--speak): {len(speak_map)} вопрос(ов)")
+
     asyncio.run(build(
         text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         width=args.width, height=args.height, title=args.title,
-        images_dir=images_dir, base_dir=base_dir,
+        images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
         chromium_path=args.chromium_path,
     ))
 
