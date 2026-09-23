@@ -371,10 +371,11 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   .opt {
     font-size: 21px; padding: 11px 18px; border: 2px solid #dce3ee; border-radius: 12px;
     background: #f7f9fc; box-shadow: 0 0 0 rgba(52,199,89,0);
-    transition: background .3s ease, border-color .3s ease, color .3s ease, box-shadow .3s ease;
+    transition: background .1s ease-out, border-color .1s ease-out,
+                color .1s ease-out, box-shadow .1s ease-out;
   }
   .opt .n { display: inline-block; min-width: 30px; font-weight: 700; color: #7a8aa0;
-            transition: color .3s ease; }
+            transition: color .1s ease-out; }
   .opt.correct { box-shadow: 0 0 0 3px rgba(52,199,89,.25); }
   .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
   .opt.correct .n { color: #2ea24a; }
@@ -781,7 +782,7 @@ def main() -> None:
     ap.add_argument("--rate", default="-15%",
                     help="скорость речи (по умолчанию -15%% — медленно и внятно)")
     ap.add_argument("--pitch", default="+0Hz")
-    ap.add_argument("--pad", type=float, default=2.0,
+    ap.add_argument("--pad", type=float, default=1.0,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
     ap.add_argument("--before", type=float, default=1.5,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
