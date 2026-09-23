@@ -176,7 +176,28 @@ async def _read_hint_and_options(page) -> dict:
       const opts = [...document.querySelectorAll('.bilet__answer-list .bilet__answer-btn')]
                      .map(b => b.textContent.trim());
       const numEl = document.querySelector('.bilet__qs-num');
-      return {hint, opts, num: numEl ? parseInt(numEl.textContent) : null};
+      const q = document.querySelector('.bilet__question');
+      return {hint, opts, question: q ? q.textContent.trim() : '',
+              num: numEl ? parseInt(numEl.textContent) : null};
+    }""")
+
+
+async def _find_green_option(page) -> int:
+    """Индекс варианта, который сайт подсветил ЗЕЛЁНЫМ (правильный) — по зелёному
+    фону или по классу. -1 если зелёного нет."""
+    return await page.evaluate("""() => {
+      const items = [...document.querySelectorAll('.bilet__answer-item')];
+      for (let i = 0; i < items.length; i++) {
+        const btn = items[i].querySelector('.bilet__answer-btn') || items[i];
+        for (const el of [items[i], btn]) {
+          const m = getComputedStyle(el).backgroundColor.match(/(\\d+),\\s*(\\d+),\\s*(\\d+)/);
+          if (m) { const r=+m[1],g=+m[2],b=+m[3];
+                   if (g > 90 && g > r + 25 && g > b + 25) return i; }
+        }
+        if (/right|correct|true|success|green|vern|prav/i.test(items[i].className +
+            ' ' + (btn.className || ''))) return i;
+      }
+      return -1;
     }""")
 
 
@@ -241,6 +262,77 @@ async def _goto_next(page) -> None:
     }""")
 
 
+async def discover_answers(page, questions, shot_dir: str | None = None) -> list[dict]:
+    """Надёжно узнаёт правильные ответы: на каждом вопросе жмёт вариант (по
+    подсказке-догадке, чтобы реже мазать) и читает, КАКОЙ загорелся зелёным —
+    это ответ самого сайта, а значит 100% верный (числа и перемешивание не
+    важны). Возвращает [{num, question, answer}] по порядку вопросов."""
+    n = len(questions) or 20
+    out: list[dict] = []
+    for i in range(n):
+        await _wait_question_ready(page)
+        info = await _read_hint_and_options(page)
+        extra = questions[i].narration() if i < len(questions) else ""
+        guess = _correct_from_hint(info["hint"], info["opts"], extra)
+        cur_num = info["num"]
+        # Кликаем догадку (или первый вариант), потом смотрим, что зелёное.
+        await _click_answer(page, guess if guess >= 0 else 0)
+        await asyncio.sleep(0.8)
+        green = await _find_green_option(page)
+        if shot_dir and i == 0:
+            await page.screenshot(path=str(Path(shot_dir) / "02_зелёный.png"))
+        answer = info["opts"][green] if 0 <= green < len(info["opts"]) else (
+                 info["opts"][guess] if guess >= 0 else "")
+        out.append({"num": cur_num, "question": info["question"], "answer": answer})
+        mark = f"№{green+1}" if green >= 0 else ("№%d?" % (guess+1) if guess >= 0 else "❓")
+        print(f"   Вопрос {cur_num}: правильный {mark}  {answer[:55]}", flush=True)
+        if i < n - 1:
+            await _goto_next(page)
+            try:
+                await page.wait_for_function(
+                    "(k)=>{const e=document.querySelector('.bilet__qs-num');"
+                    "return e && parseInt(e.textContent)!==k;}",
+                    arg=cur_num, timeout=6000)
+            except Exception:
+                pass
+    return out
+
+
+def _answers_cache_path(bilet: int) -> Path:
+    return Path(__file__).parent / f"bilet{bilet}_answers.json"
+
+
+def _load_answers(bilet: int, n: int) -> list[dict] | None:
+    """Читает сохранённые ответы; None, если файла нет или он не на N вопросов."""
+    p = _answers_cache_path(bilet)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, list) and len(data) >= n and all(d.get("answer") for d in data[:n]):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+async def _discover_pass(url: str, questions, executable_path: str | None,
+                         width: int, height: int) -> list[dict]:
+    """Отдельный проход без записи: собирает правильные ответы по зелёному."""
+    from playwright.async_api import async_playwright
+    exe = executable_path or auto_quiz._find_chromium()
+    launch_kw = {"args": ["--no-sandbox"]}
+    if exe:
+        launch_kw["executable_path"] = exe
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(**launch_kw)
+        ctx = await browser.new_context(viewport={"width": width, "height": height})
+        page = await ctx.new_page()
+        await _prepare_page(page, url)
+        answers = await discover_answers(page, questions)
+        await ctx.close()
+        await browser.close()
+        return answers
+
+
 async def inspect(url: str, bilet_hint: int, questions, executable_path: str | None,
                   width: int, height: int, shot_dir: str) -> None:
     """Разведка: открыть сайт, показать структуру и сохранить пару скриншотов —
@@ -261,63 +353,31 @@ async def inspect(url: str, bilet_hint: int, questions, executable_path: str | N
         page = await ctx.new_page()
         await _prepare_page(page, url)
 
-        print("── Разведка сайта: прохожу все 20 вопросов, определяю правильные ответы ──")
-        n = len(questions) or 20
-        table = []
-        for i in range(n):
-            await _wait_question_ready(page)
-            info = await _read_hint_and_options(page)
-            extra = questions[i].narration() if i < len(questions) else ""
-            idx = _correct_from_hint(info["hint"], info["opts"], extra)
-            table.append({"num": info["num"], "idx": idx,
-                          "opts": info["opts"], "hint": info["hint"]})
-            cur_num = info["num"]
-            mark = f"№{idx+1}" if idx >= 0 else "❓ не определён"
-            opt = info["opts"][idx][:55] if idx >= 0 else ""
-            print(f"   Вопрос {cur_num}: правильный {mark}  {opt}", flush=True)
-            if i == 0:
-                # На 1-м вопросе жмём найденный правильный вариант — проверяем,
-                # что сайт красит его зелёным (это увидим на скриншоте).
-                await page.screenshot(path=str(Path(shot_dir) / "01_вопрос.png"))
-                if idx >= 0:
-                    await _click_answer(page, idx)
-                    await asyncio.sleep(1.3)
-                await page.screenshot(path=str(Path(shot_dir) / "02_зелёный.png"))
-            # Листаем дальше.
-            if i < n - 1:
-                await _goto_next(page)
-                try:
-                    await page.wait_for_function(
-                        "(k)=>{const e=document.querySelector('.bilet__qs-num');"
-                        "return e && parseInt(e.textContent)!==k;}",
-                        arg=cur_num, timeout=6000)
-                except Exception:
-                    pass
+        print("── Разведка: прохожу 20 вопросов и по зелёному узнаю верные ответы ──")
+        await page.screenshot(path=str(Path(shot_dir) / "01_вопрос.png"))
+        answers = await discover_answers(page, questions, shot_dir=shot_dir)
 
-        got = sum(1 for r in table if r["idx"] >= 0)
-        print(f"\nИтог: определено {got}/{n} правильных ответов.")
-        if got < n:
-            print("   Не определились вопросы:",
-                  ", ".join(str(r["num"]) for r in table if r["idx"] < 0))
+        n = len(answers)
+        got = sum(1 for a in answers if a["answer"])
+        print(f"\nИтог: определено {got}/{n} правильных ответов (по зелёному на сайте).")
+        # Сохраняем ответы в кэш — запись возьмёт их и не будет искать заново.
+        cache = _answers_cache_path(int(bilet_hint))
+        cache.write_text(json.dumps(answers, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"💾 Ответы сохранены: {cache.name}")
 
         print(f"\n🖼 Скриншоты в папке: {shot_dir}")
-        print("   01_вопрос.png — вопрос 1, 02_зелёный.png — после нажатия (тут виден зелёный).")
-        print("   Если ответы верные и на 02 горит зелёный — запускай БЕЗ --inspect, будет видео.")
+        print("   01_вопрос.png — вопрос 1, 02_зелёный.png — правильный вариант зелёным.")
+        print("   Если ответы верные и на 02 горит зелёный — запускай БЕЗ --inspect: будет видео.")
         await ctx.close()
         await browser.close()
 
 
-async def record(url: str, questions, schedule: list[dict], out_dir: str,
-                 executable_path: str | None, width: int, height: int,
-                 pad: float, reveal_mode: str) -> str:
-    """Проходит билет под расписание и пишет видео. Возвращает путь к .webm.
-
-    reveal_mode:
-      'hint'  — зелёный через кнопку сайта «Показать ответ» (по умолчанию;
-                не нужен список ответов, не ставит «ошибку» в аккаунт);
-      'click' — жмём правильный вариант по совпадению текста (нужен структурный
-                текст с вариантами и «Ответ: N»).
-    """
+async def record(url: str, questions, schedule: list[dict], answers: list[dict],
+                 out_dir: str, executable_path: str | None, width: int, height: int,
+                 pad: float) -> str:
+    """Проходит билет под расписание и пишет видео. Правильный вариант берём из
+    заранее найденных ответов (`answers`, по зелёному) и жмём его по совпадению
+    текста — надёжно и без красных «ошибок». Возвращает путь к .webm."""
     from playwright.async_api import async_playwright
 
     exe = executable_path or auto_quiz._find_chromium()
@@ -339,12 +399,10 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
             expected = i + 1
             await _wait_question_ready(page)
             info = await _read_hint_and_options(page)
-            # Находим правильный вариант: 'text' — по твоему тексту (если есть
-            # «Ответ: N»); иначе (auto) — по скрытому комментарию сайта.
-            idx = -1
-            if reveal_mode == "text":
-                idx = _best_answer_index(q.correct_text(), info["opts"])
-            if idx < 0:
+            # Правильный вариант — из заранее найденных ответов (по зелёному).
+            correct_text = answers[i]["answer"] if i < len(answers) else ""
+            idx = _best_answer_index(correct_text, info["opts"]) if correct_text else -1
+            if idx < 0:  # запас: если текст не совпал — по комментарию сайта
                 idx = _correct_from_hint(info["hint"], info["opts"], q.narration())
             # Читаем вопрос — держим до момента показа ответа.
             await asyncio.sleep(seg["reveal_at"])
@@ -352,8 +410,7 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
             if idx >= 0:
                 await _click_answer(page, idx)
             else:
-                print(f"   ⚠️ Вопрос {expected}: не смог уверенно определить правильный "
-                      f"вариант — показываю без зелёного.")
+                print(f"   ⚠️ Вопрос {expected}: не удалось определить ответ — без зелёного.")
             # Дочитываем пояснение, зелёный висит.
             await asyncio.sleep(seg["dur"] - seg["reveal_at"] + pad)
             # Листаем дальше (если не последний и сайт не перелистнул сам).
@@ -416,6 +473,16 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
+    # Правильные ответы: берём из кэша (после --inspect) или собираем разведкой.
+    answers = _load_answers(bilet, len(questions))
+    if answers is None:
+        print("🔎 Правильные ответы ещё не собраны — прохожу билет разведкой (разово)…")
+        answers = await _discover_pass(url, questions, chromium_path, width, height)
+        _answers_cache_path(bilet).write_text(
+            json.dumps(answers, ensure_ascii=False, indent=1), encoding="utf-8")
+    else:
+        print(f"💾 Правильные ответы взяты из кэша ({_answers_cache_path(bilet).name}).")
+
     synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions))
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
@@ -436,8 +503,8 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
 
     print("🎥 Записываю прохождение билета на сайте…")
     vid_dir = str(tmp / "vid"); Path(vid_dir).mkdir(exist_ok=True)
-    webm = await record(url, questions, schedule, vid_dir, chromium_path, width, height,
-                        pad, reveal_mode)
+    webm = await record(url, questions, schedule, answers, vid_dir, chromium_path,
+                        width, height, pad)
 
     print("🔊 Склеиваю озвучку под тайминг…")
     gaps = [pad] * len(clips)
