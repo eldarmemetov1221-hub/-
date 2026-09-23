@@ -384,11 +384,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     padding: 12px 16px; opacity: 0; transition: opacity .4s;
   }
   .explain.show { opacity: 1; }
-  #cursor {
-    position: fixed; width: 26px; height: 26px; left: 0; top: 0; z-index: 99;
-    pointer-events: none; transition: left .5s ease, top .5s ease;
-    filter: drop-shadow(0 2px 3px rgba(0,0,0,.35));
-  }
 </style>
 </head>
 <body>
@@ -403,8 +398,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     <div class="options" id="options"></div>
     <div class="explain" id="explain"></div>
   </div>
-  <svg id="cursor" viewBox="0 0 24 24"><path fill="#fff" stroke="#222" stroke-width="1.2"
-     d="M4 2 L4 20 L9 15 L12.5 22 L15 21 L11.5 14 L18 14 Z"/></svg>
 
 <script id="payload" type="application/json">__DATA__</script>
 <script>
@@ -417,7 +410,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const optsEl = document.getElementById("options");
   const explEl = document.getElementById("explain");
   const imgEl = document.getElementById("qimg");
-  const cursor = document.getElementById("cursor");
 
   const fmt = s => {
     s = Math.max(0, Math.floor(s));
@@ -442,13 +434,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
                     opt.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
       optsEl.appendChild(d);
     });
-  }
-
-  function moveCursorTo(el) {
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    cursor.style.left = (r.left + Math.min(r.width - 30, 80)) + "px";
-    cursor.style.top = (r.top + r.height / 2 - 6) + "px";
   }
 
   function reveal(q) {
@@ -481,9 +466,6 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       clockDur = DATA.schedule[i].dur;
       clockStart = performance.now();
       cancelAnimationFrame(raf);
-      // Курсор к правильному варианту (плавно «наводимся» заранее).
-      const el = optsEl.querySelector('.opt[data-i="' + q.correct + '"]');
-      setTimeout(() => moveCursorTo(el), 350);
       tick();
     },
     reveal(i) { reveal(DATA.questions[i]); },
@@ -674,9 +656,10 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 engine: str, pad: float, reveal_frac: float,
                 width: int, height: int, title: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
-                speak_map: dict[int, str] | None = None,
+                speak_map: dict[int, str] | None = None, green_frac: float = 0.6,
                 chromium_path: str | None = None) -> dict:
     speak_map = speak_map or {}
+    green_frac = min(1.0, max(0.0, green_frac))
     questions = parse_questions(text)
     if not questions:
         raise SystemExit("❌ Не удалось разобрать ни одного вопроса из текста.")
@@ -734,8 +717,9 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             clips.append((str(p2), d2)); gaps.append(pad)
         else:
             gaps[-1] = pad
-        # Зелёный зажигаем ровно на стыке (после вопроса+вариантов).
-        schedule.append({"dur": round(d1 + d2 + pad, 3), "revealAt": round(d1, 3)})
+        # Зелёный зажигаем во время пояснения: d1 (конец вопроса) + доля пояснения.
+        reveal_at = d1 + d2 * green_frac
+        schedule.append({"dur": round(d1 + d2 + pad, 3), "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
@@ -772,8 +756,10 @@ def main() -> None:
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--pad", type=float, default=1.1,
                     help="пауза после озвучки вопроса, сек (чтобы зелёный ответ повисел)")
-    ap.add_argument("--reveal", type=float, default=0.5,
-                    help="в какой доле вопроса зажечь зелёный ответ (0.5 = на середине)")
+    ap.add_argument("--reveal", type=float, default=0.5, help="(не используется)")
+    ap.add_argument("--green", type=float, default=0.6,
+                    help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
+                         "0.6=ближе к концу, 1=в самом конце). По умолчанию 0.6")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--title", default="Билет ПДД")
@@ -828,7 +814,7 @@ def main() -> None:
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         width=args.width, height=args.height, title=args.title,
         images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
-        chromium_path=args.chromium_path,
+        green_frac=args.green, chromium_path=args.chromium_path,
     ))
 
 
