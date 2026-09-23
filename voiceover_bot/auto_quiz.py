@@ -305,10 +305,10 @@ def parse_questions(text: str) -> list[Question]:
 # --------------------------------------------------------------------------- #
 
 def build_page(questions: list[Question], schedule: list[dict], title: str,
-               images: dict[int, str] | None = None) -> str:
-    """Самодостаточная HTML-страница: показывает вопросы по расписанию, ведёт
-    курсор к правильному варианту, зажигает зелёным, крутит таймер/прогресс.
-    `images` — {индекс вопроса: data-URI картинки}."""
+               images: dict[int, str] | None = None, show_expl: bool = False) -> str:
+    """Самодостаточная HTML-страница: показывает вопросы по расписанию, зажигает
+    зелёный правильный ответ, крутит таймер. `images` — {индекс: data-URI}.
+    Текст пояснения на экране по умолчанию не показываем (его читает голос)."""
     images = images or {}
     data = {
         "title": title,
@@ -319,7 +319,7 @@ def build_page(questions: list[Question], schedule: list[dict], title: str,
                 "text": q.text,
                 "options": q.options,
                 "correct": q.correct,
-                "explanation": q.explanation,
+                "explanation": q.explanation if show_expl else "",
                 "image": images.get(i, ""),
             }
             for i, q in enumerate(questions)
@@ -658,7 +658,8 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 width: int, height: int, title: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
                 speak_map: dict[int, str] | None = None, green_frac: float = 0.6,
-                before: float = 1.5, chromium_path: str | None = None) -> dict:
+                before: float = 1.5, start_gap: float = 1.0, show_expl: bool = False,
+                chromium_path: str | None = None) -> dict:
     speak_map = speak_map or {}
     green_frac = min(1.0, max(0.0, green_frac))
     questions = parse_questions(text)
@@ -690,6 +691,12 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="autoquiz_"))
+    # Тихий кусок — пауза в НАЧАЛЕ вопроса (открылся -> пауза -> потом читаем).
+    silence = tmp / "silence.m4a"
+    subprocess.run(
+        [FFMPEG, "-hide_banner", "-y", "-f", "lavfi", "-t", f"{max(0.05, start_gap):.3f}",
+         "-i", "anullsrc=r=48000:cl=stereo", "-c:a", "aac", str(silence)],
+        capture_output=True, check=True)
     clips: list[tuple[str, float]] = []
     gaps: list[float] = []
     schedule: list[dict] = []
@@ -705,6 +712,8 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             intro_text, answer_text = q.narration_intro(), q.narration_answer()
         tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
         mid = 0.0
+        # 0) пауза в начале: вопрос открылся -> тишина start_gap -> потом читаем.
+        clips.append((str(silence), start_gap)); gaps.append(0.0)
         # 1) вопрос (у --speak — твоими словами).
         a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
@@ -721,9 +730,9 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             d2 = media_duration(str(p2))
             clips.append((str(p2), d2))
         gaps.append(tail)
-        # Порядок: дочитал всё -> пауза before -> ЗЕЛЁНЫЙ -> пауза pad -> след. вопрос.
-        reveal_at = d1 + mid + d2 + before
-        schedule.append({"dur": round(d1 + mid + d2 + before + pad, 3),
+        # Порядок: открылся -> пауза -> читает -> пауза -> ЗЕЛЁНЫЙ -> пауза -> дальше.
+        reveal_at = start_gap + d1 + mid + d2 + before
+        schedule.append({"dur": round(start_gap + d1 + mid + d2 + before + pad, 3),
                          "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
@@ -732,7 +741,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
 
     # Видео.
     print("🎥 Записываю прохождение билета в браузере…")
-    page_html = build_page(questions, schedule, title, images)
+    page_html = build_page(questions, schedule, title, images, show_expl=show_expl)
     webm_dir = str(tmp / "vid")
     Path(webm_dir).mkdir(exist_ok=True)
     webm = await record_video(page_html, schedule, webm_dir, width, height,
@@ -764,6 +773,10 @@ def main() -> None:
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
     ap.add_argument("--before", type=float, default=1.5,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
+    ap.add_argument("--start", type=float, default=1.0,
+                    help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
+    ap.add_argument("--show-expl", action="store_true",
+                    help="показывать текст пояснения на экране (по умолчанию скрыт)")
     ap.add_argument("--reveal", type=float, default=0.5, help="(не используется)")
     ap.add_argument("--green", type=float, default=0.6,
                     help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
@@ -822,7 +835,8 @@ def main() -> None:
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
         width=args.width, height=args.height, title=args.title,
         images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
-        green_frac=args.green, before=args.before, chromium_path=args.chromium_path,
+        green_frac=args.green, before=args.before, start_gap=args.start,
+        show_expl=args.show_expl, chromium_path=args.chromium_path,
     ))
 
 
