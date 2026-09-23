@@ -156,6 +156,16 @@ async def _click_answer(page, index: int) -> bool:
     return bool(ok)
 
 
+async def _show_answer(page) -> bool:
+    """Жмёт кнопку сайта «Показать ответ» — она подсвечивает правильный вариант
+    (без ответа мышкой, без «ошибки» в аккаунт)."""
+    return bool(await page.evaluate("""() => {
+      const b = document.querySelector('.bilet__hint-btn');
+      if (b) { b.click(); return true; }
+      return false;
+    }"""))
+
+
 async def _goto_next(page) -> None:
     await page.evaluate("""() => {
       const b = document.querySelector('.bilet__next-btn');
@@ -163,7 +173,7 @@ async def _goto_next(page) -> None:
     }""")
 
 
-async def inspect(url: str, questions, executable_path: str | None,
+async def inspect(url: str, bilet_hint: int, questions, executable_path: str | None,
                   width: int, height: int, shot_dir: str) -> None:
     """Разведка: открыть сайт, показать структуру и сохранить пару скриншотов —
     чтобы точно подогнать селекторы/тайминги под сайт. Отвечает НЕ жмёт (кроме
@@ -187,46 +197,79 @@ async def inspect(url: str, questions, executable_path: str | None,
         print("── Разведка сайта ──")
         print("Вопрос №:", cur["num"])
         print("Текст:", cur["question"][:90])
-        print("Варианты на сайте:")
+        print("Вариантов на сайте:", len(cur["answers"]))
         for i, a in enumerate(cur["answers"], 1):
             print(f"   {i}. {a[:80]}")
         await page.screenshot(path=str(Path(shot_dir) / "01_вопрос.png"))
 
-        # Пробуем нажать правильный ответ 1-го вопроса (по тексту).
-        idx = -1
-        if questions:
-            idx = _best_answer_index(questions[0].correct_text(), cur["answers"])
-        print(f"\nПравильный (из текста): «{questions[0].correct_text() if questions else ''}» "
-              f"-> кнопка №{idx + 1 if idx >= 0 else '?'}")
-        if idx >= 0:
-            await _click_answer(page, idx)
-            await asyncio.sleep(1.2)
-            after = await page.evaluate("""() => {
-              const items = [...document.querySelectorAll('.bilet__answer-item')];
-              const num = document.querySelector('.bilet__qs-num');
-              return {
-                num: num ? num.textContent.trim() : null,
-                classes: items.map(el => el.className),
-                btnClasses: items.map(el => (el.querySelector('.bilet__answer-btn')||{}).className||''),
-              };
-            }""")
-            print("После клика номер вопроса:", after["num"], "(если сменился — сайт листает сам)")
-            print("Классы вариантов (ищем 'зелёный'):")
-            for c in after["classes"]:
-                print("   li:", c)
-            for c in after["btnClasses"]:
-                if c:
-                    print("   btn:", c)
-            await page.screenshot(path=str(Path(shot_dir) / "02_после_клика.png"))
-        print(f"\n🖼 Скриншоты: {shot_dir}")
+        # Главное: жмём кнопку сайта «Показать ответ» и смотрим, ЧТО меняется —
+        # подсвечивает ли она правильный вариант (и каким классом/цветом).
+        before = await page.evaluate("""() => [...document.querySelectorAll('.bilet__answer-item')]
+            .map(el => el.className + ' | ' + ((el.querySelector('.bilet__answer-btn')||{}).className||''))""")
+        shown = await _show_answer(page)
+        await asyncio.sleep(1.2)
+        after = await page.evaluate("""() => {
+          const items = [...document.querySelectorAll('.bilet__answer-item')];
+          const num = document.querySelector('.bilet__qs-num');
+          const green = items.map(el => {
+            const btn = el.querySelector('.bilet__answer-btn');
+            const cs = btn ? getComputedStyle(btn) : getComputedStyle(el);
+            return {cls: el.className, btnCls: btn?btn.className:'', bg: cs.backgroundColor, bd: cs.borderColor};
+          });
+          return {num: num?num.textContent.trim():null, green};
+        }""")
+        print(f"\nКнопка «Показать ответ»: {'нажалась' if shown else 'НЕ найдена'}")
+        print("Номер вопроса после неё:", after["num"], "(если тот же — не листает, хорошо)")
+        print("Что стало с вариантами (ищем зелёный фон/рамку):")
+        for i, g in enumerate(after["green"], 1):
+            print(f"   {i}. cls='{g['cls']}' btn='{g['btnCls']}' bg={g['bg']} border={g['bd']}")
+        await page.screenshot(path=str(Path(shot_dir) / "02_показать_ответ.png"))
+
+        # Пытаемся достать данные билета с сайта (там лежат правильные ответы) —
+        # на случай, если «Показать ответ» не красит вариант.
+        data = await page.evaluate("""(n) => {
+          try {
+            const out = {globals: []};
+            for (const k in window) {
+              if (/bilet|coll|quest|answer|data/i.test(k)) {
+                const t = typeof window[k];
+                if (t !== 'undefined') out.globals.push(k + ':' + t);
+              }
+            }
+            if (typeof window.createBiletColl === 'function') {
+              try {
+                const c = window.createBiletColl(n);
+                out.collType = Array.isArray(c) ? 'array['+c.length+']' : typeof c;
+                out.sample = JSON.stringify(c, (k,v)=> (v&&v.nodeType)?undefined:v).slice(0, 1200);
+              } catch(e) { out.collErr = String(e); }
+            }
+            return out;
+          } catch(e) { return {err: String(e)}; }
+        }""", int(bilet_hint))
+        print("\nГлобальные переменные сайта (с ответами?):", ", ".join(data.get("globals", []))[:300])
+        if data.get("collType"):
+            print("createBiletColl вернул:", data["collType"])
+            print("Кусок данных:", data.get("sample", "")[:800])
+        if data.get("collErr"):
+            print("createBiletColl ошибка:", data["collErr"])
+
+        print(f"\n🖼 Скриншоты в папке: {shot_dir}")
+        print("   Пришли мне вывод выше + оба скриншота — по ним докручу зелёный.")
         await ctx.close()
         await browser.close()
 
 
 async def record(url: str, questions, schedule: list[dict], out_dir: str,
                  executable_path: str | None, width: int, height: int,
-                 pad: float) -> str:
-    """Проходит билет под расписание и пишет видео. Возвращает путь к .webm."""
+                 pad: float, reveal_mode: str) -> str:
+    """Проходит билет под расписание и пишет видео. Возвращает путь к .webm.
+
+    reveal_mode:
+      'hint'  — зелёный через кнопку сайта «Показать ответ» (по умолчанию;
+                не нужен список ответов, не ставит «ошибку» в аккаунт);
+      'click' — жмём правильный вариант по совпадению текста (нужен структурный
+                текст с вариантами и «Ответ: N»).
+    """
     from playwright.async_api import async_playwright
 
     exe = executable_path or auto_quiz._find_chromium()
@@ -247,24 +290,26 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
         for i, (q, seg) in enumerate(zip(questions, schedule)):
             cur = await _read_current(page)
             expected = i + 1
-            # Читаем «вопрос + варианты».
-            await asyncio.sleep(seg["intro"])
-            # Зажигаем зелёный: жмём правильный вариант (по совпадению текста).
-            idx = _best_answer_index(q.correct_text(), cur["answers"])
-            clicked = False
-            if idx >= 0:
-                clicked = await _click_answer(page, idx)
+            # Читаем вопрос — держим до момента показа ответа.
+            await asyncio.sleep(seg["reveal_at"])
+            # Зажигаем зелёный.
+            if reveal_mode == "click":
+                idx = _best_answer_index(q.correct_text(), cur["answers"])
+                if idx >= 0:
+                    await _click_answer(page, idx)
+                else:
+                    print(f"   ⚠️ Вопрос {expected}: вариант «{q.correct_text()[:40]}» "
+                          f"не найден — показываю «Показать ответ».")
+                    await _show_answer(page)
             else:
-                print(f"   ⚠️ Вопрос {expected}: не нашёл на сайте вариант «{q.correct_text()[:40]}» "
-                      f"— показываю без нажатия. Поправь формулировку в тексте.")
-            # Читаем «правильный ответ + пояснение», зелёный висит.
-            await asyncio.sleep(seg["answer"] + pad)
+                await _show_answer(page)
+            # Дочитываем пояснение, зелёный висит.
+            await asyncio.sleep(seg["dur"] - seg["reveal_at"] + pad)
             # Листаем дальше (если не последний и сайт не перелистнул сам).
             if i < len(questions) - 1:
                 now = await _read_current(page)
                 if now["num"] == expected or now["num"] is None:
                     await _goto_next(page)
-                    # Ждём смену вопроса.
                     try:
                         await page.wait_for_function(
                             "(n) => { const e=document.querySelector('.bilet__qs-num');"
@@ -272,7 +317,6 @@ async def record(url: str, questions, schedule: list[dict], out_dir: str,
                             arg=expected, timeout=6000)
                     except Exception:
                         pass
-                _ = clicked
 
         await asyncio.sleep(0.4)
         video = page.video
@@ -297,7 +341,8 @@ def mux(webm: str, audio: str, out: str, total_dur: float) -> None:
 # --------------------------------------------------------------------------- #
 
 async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch: str,
-                engine: str, pad: float, width: int, height: int,
+                engine: str, pad: float, reveal_frac: float, reveal_mode: str,
+                width: int, height: int,
                 chromium_path: str | None, do_inspect: bool, shot_dir: str) -> dict:
     questions = parse_questions(text)
     if not questions:
@@ -306,7 +351,7 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
     print(f"🌐 Сайт: {url}\n📋 Вопросов в тексте: {len(questions)}")
 
     if do_inspect:
-        await inspect(url, questions, chromium_path, width, height, shot_dir)
+        await inspect(url, bilet, questions, chromium_path, width, height, shot_dir)
         return {"inspect": True}
 
     # Озвучка двумя кусками на вопрос (с кэшем).
@@ -320,48 +365,31 @@ async def build(bilet: int, text: str, out: str, *, voice: str, rate: str, pitch
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
+    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions))
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="sitequiz_"))
     clips: list[tuple[str, float]] = []
     schedule: list[dict] = []
     for q in questions:
-        intro_audio = await synth(q.narration_intro())
-        pa = tmp / f"q{q.number:02d}_a.mp3"; pa.write_bytes(intro_audio)
-        da = media_duration(str(pa))
+        audio = await synth(q.narration())
+        p = tmp / f"q{q.number:02d}.mp3"; p.write_bytes(audio)
+        dur = media_duration(str(p))
+        clips.append((str(p), dur))
+        # Зелёный показываем на доле reveal_frac от озвучки.
+        schedule.append({"dur": round(dur, 3),
+                         "reveal_at": round(min(dur, dur * reveal_frac), 3)})
 
-        ans_text = q.narration_answer()
-        if ans_text:
-            ans_audio = await synth(ans_text)
-            pb = tmp / f"q{q.number:02d}_b.mp3"; pb.write_bytes(ans_audio)
-            db = media_duration(str(pb))
-        else:
-            pb, db = None, 0.0
-
-        clips.append((str(pa), da))
-        if pb:
-            clips.append((str(pb), db))
-        schedule.append({"intro": round(da, 3), "answer": round(db, 3)})
-
-    total_dur = sum(s["intro"] + s["answer"] + pad for s in schedule)
+    total_dur = sum(s["dur"] + pad for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d}")
 
     print("🎥 Записываю прохождение билета на сайте…")
     vid_dir = str(tmp / "vid"); Path(vid_dir).mkdir(exist_ok=True)
-    webm = await record(url, questions, schedule, vid_dir, chromium_path, width, height, pad)
+    webm = await record(url, questions, schedule, vid_dir, chromium_path, width, height,
+                        pad, reveal_mode)
 
     print("🔊 Склеиваю озвучку под тайминг…")
-    # Тишина (pad) после КАЖДОГО «ответа». clips идут парами (intro, answer) —
-    # паузу вставляем после каждой второй.
-    gaps = []
-    ci = 0
-    for s in schedule:
-        gaps.append(0.0)            # после intro — сразу answer
-        if s["answer"] > 0:
-            gaps.append(pad)        # после answer — пауза
-        else:
-            gaps[-1] = pad          # ответа нет: пауза после intro
+    gaps = [pad] * len(clips)
     audio_track = str(tmp / "track.m4a")
     concat_audio(clips, gaps, audio_track)
 
@@ -383,6 +411,11 @@ def main() -> None:
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--pad", type=float, default=1.4,
                     help="сколько секунд держать зелёный ответ после озвучки")
+    ap.add_argument("--reveal", type=float, default=0.55,
+                    help="в какой доле озвучки показать зелёный (0.55 = чуть за серединой)")
+    ap.add_argument("--reveal-mode", choices=["hint", "click"], default="hint",
+                    help="hint = кнопкой сайта «Показать ответ» (по умолчанию); "
+                         "click = жать правильный вариант (нужен текст с «Ответ: N»)")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--chromium-path", default=None,
@@ -398,7 +431,8 @@ def main() -> None:
 
     asyncio.run(build(
         args.bilet, text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
-        engine=args.engine, pad=args.pad, width=args.width, height=args.height,
+        engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
+        reveal_mode=args.reveal_mode, width=args.width, height=args.height,
         chromium_path=args.chromium_path, do_inspect=args.inspect, shot_dir=args.shots,
     ))
 

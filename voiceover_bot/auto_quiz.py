@@ -114,21 +114,46 @@ class Question:
         return self.options[self.correct].strip() if 0 <= self.correct < len(self.options) else ""
 
 
-_HEADING = re.compile(
-    r"""^\s*(?:
-        \#{1,6}\s*                      # markdown ###
-      | (?:билет\s*\d+\s*)?             # 'Билет 5 '
-        вопрос\s*№?\s*(\d{1,2})\b       # 'Вопрос 5' / 'Вопрос №5'
-      | (\d{1,2})\s*[.)]\s*$            # '5.' или '5)' на отдельной строке
-    )""",
-    re.IGNORECASE | re.VERBOSE,
-)
+# Порядковые числительные словами: «Вопрос седьмой» = 7.
+_RU_ORDINALS = {
+    "первый": 1, "второй": 2, "третий": 3, "четвертый": 4, "четвёртый": 4,
+    "пятый": 5, "шестой": 6, "седьмой": 7, "восьмой": 8, "девятый": 9,
+    "десятый": 10, "одиннадцатый": 11, "двенадцатый": 12, "тринадцатый": 13,
+    "четырнадцатый": 14, "пятнадцатый": 15, "шестнадцатый": 16,
+    "семнадцатый": 17, "восемнадцатый": 18, "девятнадцатый": 19, "двадцатый": 20,
+}
 
-# Заголовок «Вопрос N ...» может стоять на той же строке, что и текст вопроса.
+# «Вопрос N» / «Вопрос №N» / «Вопрос седьмой» — число цифрой или словом; заголовок
+# может стоять на той же строке, что и текст вопроса.
 _HEADING_INLINE = re.compile(
-    r"^\s*(?:билет\s*\d+\s*)?вопрос\s*№?\s*(\d{1,2})\b[\s.):-]*",
+    r"^\s*(?:билет\s*\d+\s*)?вопрос\s*(№?\s*\d{1,2}|[а-яё]+)\b[\s.):\-—]*",
     re.IGNORECASE,
 )
+# «5.» или «5)» на отдельной строке.
+_HEADING_NUMLINE = re.compile(r"^\s*(?:\#{1,6}\s*)?(\d{1,2})\s*[.)]\s*$")
+
+
+def _resolve_number(token: str) -> int | None:
+    """Число из заголовка: цифрой ('7', '№7') или словом ('седьмой')."""
+    token = token.strip().lstrip("№").strip().lower().replace("ё", "ё")
+    m = re.match(r"\d{1,2}", token)
+    if m:
+        return int(m.group(0))
+    return _RU_ORDINALS.get(token)
+
+
+def _heading_match(line: str):
+    """Если строка — заголовок вопроса, возвращает (number, rest_text), иначе None."""
+    m = _HEADING_NUMLINE.match(line)
+    if m:
+        return int(m.group(1)), ""
+    m = _HEADING_INLINE.match(line)
+    if m:
+        num = _resolve_number(m.group(1))
+        if num is not None and 1 <= num <= 60:
+            return num, line[m.end():].strip()
+    return None
+
 
 _OPTION = re.compile(r"^\s*(?:(\d{1,2})|[а-яa-z])\s*[.)]\s+(.*\S)\s*$", re.IGNORECASE)
 _DASH_OPTION = re.compile(r"^\s*[-–—•]\s+(.*\S)\s*$")
@@ -146,7 +171,7 @@ def _split_blocks(text: str) -> list[list[str]]:
     seen_heading = False
 
     for line in lines:
-        if _HEADING.match(line) or _HEADING_INLINE.match(line):
+        if _heading_match(line):
             seen_heading = True
             if cur:
                 blocks.append(cur)
@@ -158,7 +183,7 @@ def _split_blocks(text: str) -> list[list[str]]:
 
     if seen_heading:
         # Первый блок до самого первого заголовка (шапка/пусто) — выкидываем.
-        if blocks and not (_HEADING.match(blocks[0][0]) or _HEADING_INLINE.match(blocks[0][0])):
+        if blocks and not _heading_match(blocks[0][0]):
             blocks = blocks[1:]
         return [b for b in blocks if any(s.strip() for s in b)]
 
@@ -210,18 +235,10 @@ def parse_questions(text: str) -> list[Question]:
         explanation = ""
         first = block[0]
 
-        # Номер вопроса из заголовка, если есть.
-        mnum = (_HEADING.match(first) or _HEADING_INLINE.match(first))
-        if mnum:
-            for g in mnum.groups():
-                if g and g.isdigit():
-                    number = int(g)
-                    break
-            # Если «Вопрос N» стоит на одной строке с текстом — оставляем хвост.
-            inline = _HEADING_INLINE.match(first)
-            rest = ""
-            if inline:
-                rest = first[inline.end():].strip()
+        # Номер вопроса из заголовка, если есть (цифрой или словом), и хвост строки.
+        hm = _heading_match(first)
+        if hm:
+            number, rest = hm
             body = ([rest] if rest else []) + block[1:]
         else:
             body = block
