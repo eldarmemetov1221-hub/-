@@ -365,15 +365,19 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .num.active { border-color: #2b6cff; color: #2b6cff; }
   .num.done { background: #34c759; border-color: #34c759; color: #fff; }
-  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .badge {
-    font-size: 28px; font-weight: 700; color: #2b6cff;
-    background: #eaf1ff; padding: 10px 20px; border-radius: 12px;
+    font-size: 30px; font-weight: 800; color: #fff; letter-spacing: .5px;
+    background: #2a7fc0; padding: 12px 24px; border-radius: 10px;
   }
-  .timer { font-size: 28px; font-weight: 700; color: #55657a; }
-  .imgzone { text-align: center; margin: 12px 0 16px; }
-  .imgzone img { width: 100%; max-height: min(440px, 46vh); object-fit: contain;
-                 border-radius: 12px; border: 1px solid #e3e9f2; display: none; }
+  .timer {
+    width: 88px; height: 88px; border-radius: 50%; border: 4px solid #f0a6a6;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; color: #e2574c;
+  }
+  .imgzone { text-align: center; margin: 12px 0 18px; }
+  .imgzone img { width: 100%; max-height: min(460px, 48vh); object-fit: contain;
+                 border-radius: 10px; display: none; }
   .imgzone img.show { display: block; margin: 0 auto; }
   .question { font-size: 31px; line-height: 1.3; font-weight: 700; }
   .options { margin-top: 18px; display: grid; gap: 12px; }
@@ -852,7 +856,7 @@ def main() -> None:
     title = args.title
     if not title:
         m = re.search(r"(\d+)", Path(args.script).stem)
-        title = f"Билет {m.group(1)}" if m else "Билет"
+        title = f"Билет № {m.group(1)}" if m else "Билет"
 
     if args.dump_page:
         questions = parse_questions(text)
