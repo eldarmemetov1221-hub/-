@@ -348,8 +348,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   body {
     font-family: "Segoe UI", Roboto, Arial, sans-serif;
     background: #eef2f7; color: #1b2733;
-    display: flex; align-items: flex-start; justify-content: center;
-    overflow: hidden;
+    display: flex; align-items: safe center; justify-content: center;
+    overflow: hidden; min-height: 100vh;
   }
   .card {
     width: min(1500px, 95vw); background: #fff; border-radius: 20px;
@@ -522,8 +522,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       card.style.opacity = "0";
       card.style.transform = "translateY(16px)";
       requestAnimationFrame(() => {
-        card.style.transition = "opacity .8s cubic-bezier(.22,.61,.36,1), " +
-                                "transform .8s cubic-bezier(.22,.61,.36,1)";
+        card.style.transition = "opacity .3s ease-out, transform .3s ease-out";
         card.style.opacity = "1";
         card.style.transform = "translateY(0)";
       });
@@ -841,9 +840,9 @@ def main() -> None:
     ap.add_argument("--rate", default="-10%",
                     help="скорость речи (по умолчанию -10%% — спокойно, но не тянет)")
     ap.add_argument("--pitch", default="+0Hz")
-    ap.add_argument("--pad", type=float, default=1.0,
+    ap.add_argument("--pad", type=float, default=0.6,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
-    ap.add_argument("--before", type=float, default=0.5,
+    ap.add_argument("--before", type=float, default=0.3,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
     ap.add_argument("--start", type=float, default=1.0,
                     help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
