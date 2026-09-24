@@ -353,33 +353,34 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .card {
     width: min(1500px, 95vw); background: #fff; border-radius: 20px;
-    box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 22px 44px 26px;
-    margin: 18px 0; position: relative;
+    box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 12px 40px 16px;
+    margin: 4px 0; position: relative;
   }
-  .numstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .numstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
   .num {
-    min-width: 44px; height: 44px; padding: 0 8px; display: flex; align-items: center;
+    min-width: 42px; height: 42px; padding: 0 8px; display: flex; align-items: center;
     justify-content: center; border: 2px solid #cfd8e6; border-radius: 8px;
-    font-size: 22px; font-weight: 700; color: #5b6b82; background: #fff;
+    font-size: 21px; font-weight: 700; color: #5b6b82; background: #fff;
     transition: background .1s ease-out, border-color .1s ease-out, color .1s ease-out;
   }
   .num.active { border-color: #2b6cff; color: #2b6cff; }
   .num.done { background: #34c759; border-color: #34c759; color: #fff; }
-  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .badge {
-    font-size: 30px; font-weight: 800; color: #fff; letter-spacing: .5px;
-    background: #2a7fc0; padding: 12px 24px; border-radius: 10px;
+    font-size: 28px; font-weight: 800; color: #fff; letter-spacing: .5px;
+    background: #2a7fc0; padding: 10px 22px; border-radius: 10px;
   }
   .timer {
-    width: 88px; height: 88px; border-radius: 50%; border: 4px solid #f0a6a6;
+    width: 78px; height: 78px; border-radius: 50%; border: 4px solid #f0a6a6;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px; font-weight: 700; color: #e2574c;
+    font-size: 22px; font-weight: 700; color: #e2574c;
   }
-  .imgzone { margin: 12px 0 18px; }
+  .imgzone { margin: 8px 0 12px; }
   /* Один и тот же прямоугольник для КАРТИНКИ и для заглушки — одинаковый размер. */
   .imgbox {
-    width: 100%; aspect-ratio: 2.72 / 1; max-height: 52vh;
+    width: 100%; aspect-ratio: 2.72 / 1; max-height: 44vh;
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
+    margin: 0 auto;
   }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
@@ -393,17 +394,17 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .imgph.show { display: flex; }
   .imgph .t { font-size: 46px; font-style: italic; color: #a9afb8; }
-  .question { font-size: 31px; line-height: 1.3; font-weight: 700; }
-  .options { margin-top: 18px; display: grid; gap: 12px; }
+  .question { font-size: 28px; line-height: 1.25; font-weight: 700; margin-top: 4px; }
+  .options { margin-top: 12px; display: grid; gap: 9px; }
   .opt {
     position: relative; text-align: center;
-    font-size: 25px; padding: 16px 64px; border: 2px solid #e3e9f2; border-radius: 14px;
-    background: #fff; color: #1b2733;
+    font-size: 23px; line-height: 1.25; padding: 12px 64px;
+    border: 2px solid #e3e9f2; border-radius: 14px; background: #fff; color: #1b2733;
     transition: opacity .15s ease-out;   /* цвет меняется МГНОВЕННО (как клик) */
   }
   .opt .n {
     position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-    width: 38px; height: 38px; border-radius: 50%; border: 2px solid #cfd8e6;
+    width: 36px; height: 36px; border-radius: 50%; border: 2px solid #cfd8e6;
     display: flex; align-items: center; justify-content: center;
     font-size: 19px; font-weight: 700; color: #5b6b82; background: #fff;
   }
