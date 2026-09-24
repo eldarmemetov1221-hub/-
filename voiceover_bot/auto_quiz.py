@@ -379,14 +379,22 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   .imgzone img { width: 100%; max-height: min(460px, 48vh); object-fit: contain;
                  border-radius: 10px; display: none; }
   .imgzone img.show { display: block; margin: 0 auto; }
+  .imgph {
+    display: none; width: 100%; height: min(360px, 40vh); border-radius: 10px;
+    background: linear-gradient(135deg, #eef1f4 0%, #e3e7ec 55%, #dfe3e8 100%);
+    position: relative; align-items: center; justify-content: center;
+  }
+  .imgph.show { display: flex; }
+  .imgph .w { position: absolute; top: 15%; left: 0; right: 0; text-align: center;
+              font-size: 40px; font-weight: 800; letter-spacing: 4px; color: #cfd4da; }
+  .imgph .t { font-size: 46px; font-style: italic; color: #a9afb8; }
   .question { font-size: 31px; line-height: 1.3; font-weight: 700; }
   .options { margin-top: 18px; display: grid; gap: 12px; }
   .opt {
     position: relative; text-align: center;
     font-size: 25px; padding: 16px 64px; border: 2px solid #e3e9f2; border-radius: 14px;
     background: #fff; color: #1b2733;
-    transition: background .1s ease-out, border-color .1s ease-out,
-                color .1s ease-out, opacity .2s ease-out;
+    transition: opacity .15s ease-out;   /* цвет меняется МГНОВЕННО (как клик) */
   }
   .opt .n {
     position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
@@ -412,7 +420,10 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       <div class="badge" id="badge">Вопрос 1</div>
       <div class="timer" id="timer">00:00</div>
     </div>
-    <div class="imgzone"><img id="qimg" alt=""></div>
+    <div class="imgzone">
+      <img id="qimg" alt="">
+      <div class="imgph" id="imgph"><span class="w">PDD-EXAM.RU</span><span class="t">вопрос без изображения</span></div>
+    </div>
     <div class="question" id="question"></div>
     <div class="options" id="options"></div>
     <div class="explain" id="explain"></div>
@@ -428,6 +439,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const optsEl = document.getElementById("options");
   const explEl = document.getElementById("explain");
   const imgEl = document.getElementById("qimg");
+  const imgPh = document.getElementById("imgph");
   const stripEl = document.getElementById("numstrip");
 
   // Полоска номеров 1..N сверху (как на сайте).
@@ -451,8 +463,11 @@ _PAGE_TEMPLATE = r"""<!doctype html>
 
   function render(q) {
     badge.textContent = DATA.title;
-    if (q.image) { imgEl.src = q.image; imgEl.classList.add("show"); }
-    else { imgEl.classList.remove("show"); imgEl.removeAttribute("src"); }
+    if (q.image) {
+      imgEl.src = q.image; imgEl.classList.add("show"); imgPh.classList.remove("show");
+    } else {
+      imgEl.classList.remove("show"); imgEl.removeAttribute("src"); imgPh.classList.add("show");
+    }
     qEl.textContent = q.text;
     explEl.classList.remove("show");
     explEl.textContent = q.explanation || "";
@@ -815,8 +830,8 @@ def main() -> None:
     ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural",
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
-    ap.add_argument("--rate", default="-15%",
-                    help="скорость речи (по умолчанию -15%% — медленно и внятно)")
+    ap.add_argument("--rate", default="-10%",
+                    help="скорость речи (по умолчанию -10%% — спокойно, но не тянет)")
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--pad", type=float, default=1.0,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
