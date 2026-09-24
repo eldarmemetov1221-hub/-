@@ -356,6 +356,15 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 16px 36px 18px;
     margin: 10px 0; position: relative;
   }
+  .numstrip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .num {
+    min-width: 30px; height: 30px; padding: 0 4px; display: flex; align-items: center;
+    justify-content: center; border: 1.5px solid #cfd8e6; border-radius: 6px;
+    font-size: 15px; font-weight: 700; color: #5b6b82; background: #fff;
+    transition: background .1s ease-out, border-color .1s ease-out, color .1s ease-out;
+  }
+  .num.active { border-color: #2b6cff; color: #2b6cff; }
+  .num.done { background: #34c759; border-color: #34c759; color: #fff; }
   .top { display: flex; align-items: center; justify-content: space-between; }
   .badge {
     font-size: 22px; font-weight: 700; color: #2b6cff;
@@ -376,9 +385,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .opt .n { display: inline-block; min-width: 30px; font-weight: 700; color: #7a8aa0;
             transition: color .1s ease-out; }
-  .opt.correct { box-shadow: 0 0 0 3px rgba(52,199,89,.25); }
-  .opt.correct { background: #e4f8e9; border-color: #34c759; color: #12692e; font-weight: 700; }
-  .opt.correct .n { color: #2ea24a; }
+  .opt.correct { background: #2ecc71; border-color: #27ae60; color: #fff; font-weight: 700; }
+  .opt.correct .n { color: #eafff1; }
   .explain {
     margin-top: 16px; font-size: 19px; color: #3a4a5e; line-height: 1.4;
     background: #f4f7fb; border-left: 4px solid #34c759; border-radius: 8px;
@@ -389,6 +397,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
 </head>
 <body>
   <div class="card">
+    <div class="numstrip" id="numstrip"></div>
     <div class="top">
       <div class="badge" id="badge">Вопрос 1</div>
       <div class="timer" id="timer">00:00</div>
@@ -409,6 +418,19 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const optsEl = document.getElementById("options");
   const explEl = document.getElementById("explain");
   const imgEl = document.getElementById("qimg");
+  const stripEl = document.getElementById("numstrip");
+
+  // Полоска номеров 1..N сверху (как на сайте).
+  const nums = [];
+  for (let k = 0; k < DATA.total; k++) {
+    const b = document.createElement("div");
+    b.className = "num";
+    b.textContent = DATA.questions[k] ? DATA.questions[k].number : (k + 1);
+    stripEl.appendChild(b);
+    nums.push(b);
+  }
+  function markActive(i) { nums.forEach((b, k) => b.classList.toggle("active", k === i && !b.classList.contains("done"))); }
+  function markDone(i) { if (nums[i]) { nums[i].classList.remove("active"); nums[i].classList.add("done"); } }
 
   const fmt = s => {
     s = Math.max(0, Math.floor(s));
@@ -418,7 +440,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   };
 
   function render(q) {
-    badge.textContent = "Вопрос " + q.number + " / " + DATA.total;
+    badge.textContent = DATA.title + " · Вопрос " + q.number;
     if (q.image) { imgEl.src = q.image; imgEl.classList.add("show"); }
     else { imgEl.classList.remove("show"); imgEl.removeAttribute("src"); }
     qEl.textContent = q.text;
@@ -458,6 +480,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     show(i) {
       const q = DATA.questions[i];
       render(q);
+      markActive(i);
       // Плавное появление нового вопроса: мягкое затухание + лёгкий подъём.
       card.style.transition = "none";
       card.style.opacity = "0";
@@ -475,7 +498,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       cancelAnimationFrame(raf);
       tick();
     },
-    reveal(i) { reveal(DATA.questions[i]); },
+    reveal(i) { reveal(DATA.questions[i]); markDone(i); },
     total: DATA.questions.length,
   };
 })();
