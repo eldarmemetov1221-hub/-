@@ -356,11 +356,11 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 16px 36px 18px;
     margin: 10px 0; position: relative;
   }
-  .numstrip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .numstrip { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 12px; }
   .num {
-    min-width: 30px; height: 30px; padding: 0 4px; display: flex; align-items: center;
-    justify-content: center; border: 1.5px solid #cfd8e6; border-radius: 6px;
-    font-size: 15px; font-weight: 700; color: #5b6b82; background: #fff;
+    min-width: 38px; height: 38px; padding: 0 6px; display: flex; align-items: center;
+    justify-content: center; border: 2px solid #cfd8e6; border-radius: 7px;
+    font-size: 19px; font-weight: 700; color: #5b6b82; background: #fff;
     transition: background .1s ease-out, border-color .1s ease-out, color .1s ease-out;
   }
   .num.active { border-color: #2b6cff; color: #2b6cff; }
@@ -372,7 +372,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .timer { font-size: 22px; font-weight: 700; color: #55657a; }
   .imgzone { text-align: center; margin: 10px 0 10px; }
-  .imgzone img { max-width: 100%; max-height: min(210px, 30vh); border-radius: 12px;
+  .imgzone img { max-width: 100%; max-height: min(270px, 38vh); border-radius: 12px;
                  border: 1px solid #e3e9f2; display: none; }
   .imgzone img.show { display: inline-block; }
   .question { font-size: 25px; line-height: 1.28; font-weight: 600; }
@@ -440,7 +440,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   };
 
   function render(q) {
-    badge.textContent = DATA.title + " · Вопрос " + q.number;
+    badge.textContent = DATA.title;
     if (q.image) { imgEl.src = q.image; imgEl.classList.add("show"); }
     else { imgEl.classList.remove("show"); imgEl.removeAttribute("src"); }
     qEl.textContent = q.text;
@@ -807,7 +807,7 @@ def main() -> None:
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--pad", type=float, default=1.0,
                     help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
-    ap.add_argument("--before", type=float, default=1.5,
+    ap.add_argument("--before", type=float, default=0.5,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
     ap.add_argument("--start", type=float, default=1.0,
                     help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
@@ -819,7 +819,8 @@ def main() -> None:
                          "0.6=ближе к концу, 1=в самом конце). По умолчанию 0.6")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
-    ap.add_argument("--title", default="Билет ПДД")
+    ap.add_argument("--title", default=None,
+                    help="надпись вверху (по умолчанию «Билет N» из имени файла)")
     ap.add_argument("--images", default=None,
                     help="папка с картинками вопросов (по умолчанию — рядом с текстом)")
     ap.add_argument("--speak", default=None,
@@ -838,13 +839,19 @@ def main() -> None:
     base_dir = Path(args.script).resolve().parent
     images_dir = Path(args.images).resolve() if args.images else None
 
+    # Надпись вверху: из --title или «Билет N» по имени файла (bilet6.txt -> Билет 6).
+    title = args.title
+    if not title:
+        m = re.search(r"(\d+)", Path(args.script).stem)
+        title = f"Билет {m.group(1)}" if m else "Билет"
+
     if args.dump_page:
         questions = parse_questions(text)
         if args.limit:
             questions = questions[:args.limit]
         imgs = _resolve_images(questions, images_dir, base_dir)
         sched = [{"dur": 6.0, "revealAt": 3.0} for _ in questions]
-        Path(args.dump_page).write_text(build_page(questions, sched, args.title, imgs),
+        Path(args.dump_page).write_text(build_page(questions, sched, title, imgs),
                                         encoding="utf-8")
         print(f"🖼 Страница сохранена: {args.dump_page} (открой в браузере — это макет)")
         return
@@ -869,7 +876,7 @@ def main() -> None:
     asyncio.run(build(
         text, out, voice=args.voice, rate=args.rate, pitch=args.pitch,
         engine=args.engine, pad=args.pad, reveal_frac=args.reveal,
-        width=args.width, height=args.height, title=args.title,
+        width=args.width, height=args.height, title=title,
         images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
         green_frac=args.green, before=args.before, start_gap=args.start,
         show_expl=args.show_expl, chromium_path=args.chromium_path,
