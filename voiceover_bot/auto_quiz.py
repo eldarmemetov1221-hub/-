@@ -372,21 +372,27 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .timer { font-size: 22px; font-weight: 700; color: #55657a; }
   .imgzone { text-align: center; margin: 10px 0 10px; }
-  .imgzone img { max-width: 100%; max-height: min(270px, 38vh); border-radius: 12px;
+  .imgzone img { max-width: 100%; max-height: min(238px, 33vh); border-radius: 12px;
                  border: 1px solid #e3e9f2; display: none; }
   .imgzone img.show { display: inline-block; }
   .question { font-size: 25px; line-height: 1.28; font-weight: 600; }
   .options { margin-top: 12px; display: grid; gap: 8px; }
   .opt {
-    font-size: 21px; padding: 11px 18px; border: 2px solid #dce3ee; border-radius: 12px;
-    background: #f7f9fc; box-shadow: 0 0 0 rgba(52,199,89,0);
+    position: relative; text-align: center;
+    font-size: 21px; padding: 12px 54px; border: 2px solid #e3e9f2; border-radius: 12px;
+    background: #fff; color: #1b2733;
     transition: background .1s ease-out, border-color .1s ease-out,
-                color .1s ease-out, box-shadow .1s ease-out;
+                color .1s ease-out, opacity .2s ease-out;
   }
-  .opt .n { display: inline-block; min-width: 30px; font-weight: 700; color: #7a8aa0;
-            transition: color .1s ease-out; }
-  .opt.correct { background: #2ecc71; border-color: #27ae60; color: #fff; font-weight: 700; }
-  .opt.correct .n { color: #eafff1; }
+  .opt .n {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #cfd8e6;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: #5b6b82; background: #fff;
+  }
+  .opt.correct { background: #2f9e35; border-color: #278a2b; color: #fff; font-weight: 700; }
+  .opt.correct .n { border-color: #fff; color: #2f9e35; background: #fff; }
+  .opt.dim { opacity: .4; }
   .explain {
     margin-top: 16px; font-size: 19px; color: #3a4a5e; line-height: 1.4;
     background: #f4f7fb; border-left: 4px solid #34c759; border-radius: 8px;
@@ -451,14 +457,17 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       const d = document.createElement("div");
       d.className = "opt";
       d.dataset.i = i;
-      d.innerHTML = '<span class="n">' + (i + 1) + '.</span> ' +
+      d.innerHTML = '<span class="n">' + (i + 1) + '</span>' +
                     opt.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
       optsEl.appendChild(d);
     });
   }
 
   function reveal(q) {
-    // Плавно зажигаем зелёный (переход .7s задан в CSS).
+    // Как на сайте: правильный — зелёный, остальные гаснут.
+    optsEl.querySelectorAll(".opt").forEach(el => {
+      if (parseInt(el.dataset.i) !== q.correct) el.classList.add("dim");
+    });
     const el = optsEl.querySelector('.opt[data-i="' + q.correct + '"]');
     if (el) el.classList.add("correct");
     if (q.explanation) setTimeout(() => explEl.classList.add("show"), 200);
