@@ -352,43 +352,43 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     overflow: hidden;
   }
   .card {
-    width: 1100px; max-width: 96vw; background: #fff; border-radius: 18px;
-    box-shadow: 0 12px 40px rgba(20,40,80,.14); padding: 16px 36px 18px;
-    margin: 10px 0; position: relative;
+    width: min(1500px, 95vw); background: #fff; border-radius: 20px;
+    box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 22px 44px 26px;
+    margin: 18px 0; position: relative;
   }
-  .numstrip { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 12px; }
+  .numstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
   .num {
-    min-width: 38px; height: 38px; padding: 0 6px; display: flex; align-items: center;
-    justify-content: center; border: 2px solid #cfd8e6; border-radius: 7px;
-    font-size: 19px; font-weight: 700; color: #5b6b82; background: #fff;
+    min-width: 44px; height: 44px; padding: 0 8px; display: flex; align-items: center;
+    justify-content: center; border: 2px solid #cfd8e6; border-radius: 8px;
+    font-size: 22px; font-weight: 700; color: #5b6b82; background: #fff;
     transition: background .1s ease-out, border-color .1s ease-out, color .1s ease-out;
   }
   .num.active { border-color: #2b6cff; color: #2b6cff; }
   .num.done { background: #34c759; border-color: #34c759; color: #fff; }
-  .top { display: flex; align-items: center; justify-content: space-between; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   .badge {
-    font-size: 22px; font-weight: 700; color: #2b6cff;
-    background: #eaf1ff; padding: 8px 16px; border-radius: 10px;
+    font-size: 28px; font-weight: 700; color: #2b6cff;
+    background: #eaf1ff; padding: 10px 20px; border-radius: 12px;
   }
-  .timer { font-size: 22px; font-weight: 700; color: #55657a; }
-  .imgzone { text-align: center; margin: 10px 0 10px; }
-  .imgzone img { max-width: 100%; max-height: min(238px, 33vh); border-radius: 12px;
-                 border: 1px solid #e3e9f2; display: none; }
-  .imgzone img.show { display: inline-block; }
-  .question { font-size: 25px; line-height: 1.28; font-weight: 600; }
-  .options { margin-top: 12px; display: grid; gap: 8px; }
+  .timer { font-size: 28px; font-weight: 700; color: #55657a; }
+  .imgzone { text-align: center; margin: 12px 0 16px; }
+  .imgzone img { width: 100%; max-height: min(440px, 46vh); object-fit: contain;
+                 border-radius: 12px; border: 1px solid #e3e9f2; display: none; }
+  .imgzone img.show { display: block; margin: 0 auto; }
+  .question { font-size: 31px; line-height: 1.3; font-weight: 700; }
+  .options { margin-top: 18px; display: grid; gap: 12px; }
   .opt {
     position: relative; text-align: center;
-    font-size: 21px; padding: 12px 54px; border: 2px solid #e3e9f2; border-radius: 12px;
+    font-size: 25px; padding: 16px 64px; border: 2px solid #e3e9f2; border-radius: 14px;
     background: #fff; color: #1b2733;
     transition: background .1s ease-out, border-color .1s ease-out,
                 color .1s ease-out, opacity .2s ease-out;
   }
   .opt .n {
-    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #cfd8e6;
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    width: 38px; height: 38px; border-radius: 50%; border: 2px solid #cfd8e6;
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 700; color: #5b6b82; background: #fff;
+    font-size: 19px; font-weight: 700; color: #5b6b82; background: #fff;
   }
   .opt.correct { background: #2f9e35; border-color: #278a2b; color: #fff; font-weight: 700; }
   .opt.correct .n { border-color: #fff; color: #2f9e35; background: #fff; }
@@ -826,8 +826,8 @@ def main() -> None:
     ap.add_argument("--green", type=float, default=0.6,
                     help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
                          "0.6=ближе к концу, 1=в самом конце). По умолчанию 0.6")
-    ap.add_argument("--width", type=int, default=1280)
-    ap.add_argument("--height", type=int, default=720)
+    ap.add_argument("--width", type=int, default=1920)
+    ap.add_argument("--height", type=int, default=1080)
     ap.add_argument("--title", default=None,
                     help="надпись вверху (по умолчанию «Билет N» из имени файла)")
     ap.add_argument("--images", default=None,
