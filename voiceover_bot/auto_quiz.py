@@ -375,18 +375,23 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     display: flex; align-items: center; justify-content: center;
     font-size: 24px; font-weight: 700; color: #e2574c;
   }
-  .imgzone { text-align: center; margin: 12px 0 18px; }
-  .imgzone img { width: 100%; max-height: min(460px, 48vh); object-fit: contain;
-                 border-radius: 10px; display: none; }
-  .imgzone img.show { display: block; margin: 0 auto; }
+  .imgzone { margin: 12px 0 18px; }
+  /* Один и тот же прямоугольник для КАРТИНКИ и для заглушки — одинаковый размер. */
+  .imgbox {
+    width: 100%; aspect-ratio: 2.72 / 1; max-height: 52vh;
+    border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
+  }
+  .imgbox img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; display: none;
+  }
+  .imgbox img.show { display: block; }
   .imgph {
-    display: none; width: 100%; height: min(360px, 40vh); border-radius: 10px;
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
     background: linear-gradient(135deg, #eef1f4 0%, #e3e7ec 55%, #dfe3e8 100%);
-    position: relative; align-items: center; justify-content: center;
   }
   .imgph.show { display: flex; }
-  .imgph .w { position: absolute; top: 15%; left: 0; right: 0; text-align: center;
-              font-size: 40px; font-weight: 800; letter-spacing: 4px; color: #cfd4da; }
   .imgph .t { font-size: 46px; font-style: italic; color: #a9afb8; }
   .question { font-size: 31px; line-height: 1.3; font-weight: 700; }
   .options { margin-top: 18px; display: grid; gap: 12px; }
@@ -421,8 +426,10 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       <div class="timer" id="timer">00:00</div>
     </div>
     <div class="imgzone">
-      <img id="qimg" alt="">
-      <div class="imgph" id="imgph"><span class="w">PDD-EXAM.RU</span><span class="t">вопрос без изображения</span></div>
+      <div class="imgbox">
+        <img id="qimg" alt="">
+        <div class="imgph" id="imgph"><span class="t">вопрос без изображения</span></div>
+      </div>
     </div>
     <div class="question" id="question"></div>
     <div class="options" id="options"></div>
