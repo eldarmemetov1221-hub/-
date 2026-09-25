@@ -840,9 +840,9 @@ def main() -> None:
     ap.add_argument("--rate", default="-10%",
                     help="скорость речи (по умолчанию -10%% — спокойно, но не тянет)")
     ap.add_argument("--pitch", default="+0Hz")
-    ap.add_argument("--pad", type=float, default=0.6,
-                    help="пауза ПОСЛЕ зелёного до следующего вопроса, сек")
-    ap.add_argument("--before", type=float, default=0.3,
+    ap.add_argument("--pad", type=float, default=0.25,
+                    help="пауза ПОСЛЕ зелёного до следующего вопроса, сек (мгновенно, как клик мышью)")
+    ap.add_argument("--before", type=float, default=0.12,
                     help="пауза ПОСЛЕ чтения до зажигания зелёного, сек")
     ap.add_argument("--start", type=float, default=1.0,
                     help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
