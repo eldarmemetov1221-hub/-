@@ -21,6 +21,29 @@ import videovoice
 
 CACHE_DIR = Path(__file__).parent / ".tts_cache"
 
+import subprocess as _sp
+import re as _re
+
+try:
+    import imageio_ffmpeg as _iio
+    _FFM = _iio.get_ffmpeg_exe()
+except Exception:  # noqa: BLE001
+    _FFM = "ffmpeg"
+
+
+def _audio_seconds(path: str) -> float:
+    """Длительность аудио в секундах (для отбраковки обрезанных кусков)."""
+    try:
+        out = _sp.run([_FFM, "-hide_banner", "-i", path],
+                      capture_output=True, text=True).stderr
+        m = _re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", out)
+        if not m:
+            return 0.0
+        h, mm, ss = m.groups()
+        return int(h) * 3600 + int(mm) * 60 + float(ss)
+    except Exception:  # noqa: BLE001
+        return 999.0  # не смогли измерить — не браковать
+
 
 def read_text_any(path: str) -> str:
     """Читает .txt в любой распространённой кодировке (UTF-8/16, Windows-1251).
@@ -89,9 +112,9 @@ async def synth_edge(text: str, voice: str, rate: str, pitch: str, retries: int 
             try:
                 await c.save(path)
                 data = Path(path).read_bytes()
-                if data:
+                if data and _audio_seconds(path) >= 0.4:
                     return data
-                raise RuntimeError("пустой ответ")
+                raise RuntimeError("пустой/обрезанный ответ")
             finally:
                 Path(path).unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 — сеть/таймаут/NoAudio: повторяем настойчиво
