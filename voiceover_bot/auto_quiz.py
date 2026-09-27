@@ -776,9 +776,20 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         # а ПОЯСНЕНИЕ — твоими словами. Иначе — полностью авто-озвучка.
         prose = speak_map.get(q.number)
         if prose:
-            intro_text = q.spoken_question()          # вопрос — авто
-            _, my_expl = _split_at_question(prose)    # твоё пояснение (после «?»)
-            answer_text = my_expl or prose
+            # Твой текст читаем КАК ЕСТЬ. Делим по слову «Ответ:» — до него
+            # вопрос+пояснение (тут зажигаем зелёный), после — сам ответ.
+            m = re.search(r"Ответ\s*:\s*", prose)
+            if m:
+                intro_text = prose[:m.start()].strip()
+                answer_text = prose[m.end():].strip()
+            else:
+                intro_text, answer_text = prose, ""
+            if not intro_text:                        # на всякий случай
+                intro_text = prose
+                answer_text = ""
+            # добавляем «Вопрос N.» в начало, если твой текст его не содержит
+            if not re.match(r"\s*Вопрос\b", intro_text, re.IGNORECASE):
+                intro_text = f"{q.announce()} {intro_text}".strip()
         else:
             intro_text, answer_text = q.narration_intro(), q.narration_answer()
         tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
