@@ -93,15 +93,30 @@ def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
                 data = r.read()
             if not data:
                 raise RuntimeError("пустой ответ")
-            vol = (os.environ.get("YANDEX_VOLUME") or "0.7").strip()
-            if vol not in ("1", "1.0", ""):
+            try:
+                v = float((os.environ.get("YANDEX_VOLUME") or "0.7").strip())
+            except Exception:  # noqa: BLE001
+                v = 0.7
+            try:
+                pt = float((os.environ.get("YANDEX_PITCH") or "1.0").strip())
+            except Exception:  # noqa: BLE001
+                pt = 1.0
+            filters = []
+            if abs(v - 1.0) > 1e-6:
+                filters.append(f"volume={v}")
+            if pt > 0 and abs(pt - 1.0) > 1e-6:
+                # ниже тон, но та же длительность (asetrate понижает, atempo возвращает темп)
+                filters.append(f"asetrate=48000*{pt}")
+                filters.append("aresample=48000")
+                filters.append(f"atempo={1.0 / pt}")
+            if filters:
                 try:
                     src = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
                     src.write(data)
                     src.close()
                     dst = src.name + ".wav"
                     subprocess.run([FFMPEG, "-y", "-i", src.name,
-                                    "-af", f"volume={vol}", dst],
+                                    "-af", ",".join(filters), dst],
                                    capture_output=True)
                     with open(dst, "rb") as f:
                         data = f.read()
