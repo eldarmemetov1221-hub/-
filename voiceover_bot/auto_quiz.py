@@ -453,10 +453,12 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   .imgzone { margin: 8px 0 12px; }
   /* Один и тот же прямоугольник для КАРТИНКИ и для заглушки — одинаковый размер. */
   .imgbox {
-    width: 100%; aspect-ratio: 2.72 / 1; max-height: 44vh;
+    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
+  /* Нет картинки — тонкая полоса, чтобы не занимать пол-экрана. */
+  .imgbox.noimg { aspect-ratio: auto; height: 60px; max-height: 60px; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; display: none;
@@ -468,12 +470,12 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     background: linear-gradient(135deg, #eef1f4 0%, #e3e7ec 55%, #dfe3e8 100%);
   }
   .imgph.show { display: flex; }
-  .imgph .t { font-size: 46px; font-style: italic; color: #a9afb8; }
-  .question { font-size: 28px; line-height: 1.25; font-weight: 700; margin-top: 4px; }
-  .options { margin-top: 12px; display: grid; gap: 9px; }
+  .imgph .t { font-size: 26px; font-style: italic; color: #a9afb8; }
+  .question { font-size: 25px; line-height: 1.22; font-weight: 700; margin-top: 4px; }
+  .options { margin-top: 10px; display: grid; gap: 8px; }
   .opt {
     position: relative; text-align: center;
-    font-size: 23px; line-height: 1.25; padding: 12px 64px;
+    font-size: 21px; line-height: 1.22; padding: 10px 56px;
     border: 2px solid #e3e9f2; border-radius: 14px; background: #fff; color: #1b2733;
     transition: opacity .15s ease-out;   /* цвет меняется МГНОВЕННО (как клик) */
   }
@@ -502,7 +504,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
       <div class="timer" id="timer">00:00</div>
     </div>
     <div class="imgzone">
-      <div class="imgbox">
+      <div class="imgbox" id="imgbox">
         <img id="qimg" alt="">
         <div class="imgph" id="imgph"><span class="t">вопрос без изображения</span></div>
       </div>
@@ -523,6 +525,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   const explEl = document.getElementById("explain");
   const imgEl = document.getElementById("qimg");
   const imgPh = document.getElementById("imgph");
+  const imgBox = document.getElementById("imgbox");
   const stripEl = document.getElementById("numstrip");
 
   // Полоска номеров 1..N сверху (как на сайте).
@@ -548,8 +551,10 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     badge.textContent = DATA.title;
     if (q.image) {
       imgEl.src = q.image; imgEl.classList.add("show"); imgPh.classList.remove("show");
+      imgBox.classList.remove("noimg");
     } else {
       imgEl.classList.remove("show"); imgEl.removeAttribute("src"); imgPh.classList.add("show");
+      imgBox.classList.add("noimg");
     }
     qEl.textContent = q.text;
     explEl.classList.remove("show");
@@ -868,7 +873,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             m = re.search(r"Ответ\s*:\s*", prose)
             if m:
                 intro_text = prose[:m.start()].strip()
-                answer_text = prose[m.end():].strip()
+                answer_text = "Ответ. " + prose[m.end():].strip()
             else:
                 intro_text, answer_text = prose, ""
             if not intro_text:                        # на всякий случай
