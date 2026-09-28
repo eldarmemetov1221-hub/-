@@ -60,6 +60,46 @@ from make_video import (
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
+                 retries: int = 6) -> bytes:
+    """Озвучка через Яндекс SpeechKit (v1) — русский сервис, не Microsoft.
+    Возвращает аудио (ogg/opus); ffmpeg дальше сам разберётся с форматом."""
+    import time
+    import urllib.request
+    import urllib.parse
+
+    body = urllib.parse.urlencode({
+        "text": text,
+        "lang": "ru-RU",
+        "voice": voice,
+        "emotion": "neutral",
+        "speed": "1.0",
+        "format": "oggopus",
+        "folderId": folder_id,
+    }).encode("utf-8")
+    last = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize",
+                data=body,
+                headers={"Authorization": f"Api-Key {api_key}"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = r.read()
+            if data:
+                return data
+            raise RuntimeError("пустой ответ")
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt < retries - 1:
+                wait = min(12, 3 * (attempt + 1))
+                print(f"      ⚠️ Яндекс не ответил ({type(e).__name__}), жду {wait}с "
+                      f"и повторяю {attempt + 2}/{retries}…")
+                time.sleep(wait)
+    raise last
+
+
 # --------------------------------------------------------------------------- #
 #  Разбор текста билета на вопросы
 # --------------------------------------------------------------------------- #
@@ -754,6 +794,18 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
 
         async def base_synth(t: str) -> bytes:
             return await asyncio.to_thread(silero_tts.synth, t, speaker)
+    elif engine == "yandex":
+        import os
+        ya_key = os.environ.get("YANDEX_API_KEY", "").strip()
+        ya_folder = os.environ.get("YANDEX_FOLDER_ID", "").strip()
+        if not ya_key or not ya_folder:
+            raise SystemExit("Для --engine yandex задай переменные окружения "
+                             "YANDEX_API_KEY и YANDEX_FOLDER_ID")
+        # если голос от edge (ru-RU-...Neural) — берём мужской Яндекс-голос
+        ya_voice = voice if voice and not re.search(r"Neural|ru-RU-", voice) else "filipp"
+
+        async def base_synth(t: str) -> bytes:
+            return await asyncio.to_thread(synth_yandex, t, ya_voice, ya_key, ya_folder)
     else:
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
@@ -845,7 +897,7 @@ def main() -> None:
         description="Авто-запись озвученного билета ПДД (без ручной записи экрана)")
     ap.add_argument("script", help=".txt с 20 вопросами (вопрос, варианты, ответ, пояснение)")
     ap.add_argument("output", nargs="?", default=None, help="итоговый .mp4")
-    ap.add_argument("--engine", choices=["edge", "silero"], default="edge")
+    ap.add_argument("--engine", choices=["edge", "silero", "yandex"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural",
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
     ap.add_argument("--rate", default="-10%",
