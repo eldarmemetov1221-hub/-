@@ -63,17 +63,21 @@ FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
                  retries: int = 6) -> bytes:
     """Озвучка через Яндекс SpeechKit (v1) — русский сервис, не Microsoft.
-    Возвращает аудио (ogg/opus); ffmpeg дальше сам разберётся с форматом."""
+    Скорость: env YANDEX_SPEED (по умолч. 0.9 — спокойно, как у Дмитрия).
+    Громкость: env YANDEX_VOLUME (по умолч. 0.7 — потише)."""
+    import os
     import time
+    import tempfile
     import urllib.request
     import urllib.parse
 
+    speed = (os.environ.get("YANDEX_SPEED") or "0.9").strip()
     body = urllib.parse.urlencode({
         "text": text,
         "lang": "ru-RU",
         "voice": voice,
         "emotion": "neutral",
-        "speed": "1.0",
+        "speed": speed,
         "format": "oggopus",
         "folderId": folder_id,
     }).encode("utf-8")
@@ -87,9 +91,25 @@ def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
             )
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = r.read()
-            if data:
-                return data
-            raise RuntimeError("пустой ответ")
+            if not data:
+                raise RuntimeError("пустой ответ")
+            vol = (os.environ.get("YANDEX_VOLUME") or "0.7").strip()
+            if vol not in ("1", "1.0", ""):
+                try:
+                    src = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+                    src.write(data)
+                    src.close()
+                    dst = src.name + ".wav"
+                    subprocess.run([FFMPEG, "-y", "-i", src.name,
+                                    "-af", f"volume={vol}", dst],
+                                   capture_output=True)
+                    with open(dst, "rb") as f:
+                        data = f.read()
+                    Path(src.name).unlink(missing_ok=True)
+                    Path(dst).unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
+            return data
         except Exception as e:  # noqa: BLE001
             last = e
             if attempt < retries - 1:
