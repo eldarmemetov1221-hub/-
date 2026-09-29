@@ -77,17 +77,24 @@ async def main(bilet: int, qnum: int) -> None:
         await page.add_style_tag(content=CLEAN_CSS)
         await page.wait_for_selector(".bilet__answer-btn", timeout=30000)
 
-        for _ in range(qnum - 1):
-            cur = await page.evaluate(
+        async def cur_num():
+            return await page.evaluate(
                 "()=>{const e=document.querySelector('.bilet__qs-num');return e?parseInt(e.textContent):null;}")
+
+        for _ in range(40):
+            c = await cur_num()
+            if c == qnum:
+                break
             await page.evaluate("()=>{const b=document.querySelector('.bilet__next-btn'); if(b)b.click();}")
             try:
                 await page.wait_for_function(
                     "(k)=>{const e=document.querySelector('.bilet__qs-num');"
-                    "return e && parseInt(e.textContent)!==k;}", arg=cur, timeout=6000)
+                    "return e && parseInt(e.textContent)!==k;}", arg=c, timeout=6000)
             except Exception:
                 pass
+            await asyncio.sleep(0.3)
         await asyncio.sleep(1.0)
+        print(f"(дошёл до вопроса {await cur_num()})")
 
         info = await page.evaluate(PROBE)
         print("=" * 70)
