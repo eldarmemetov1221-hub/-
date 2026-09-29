@@ -83,16 +83,17 @@ def parse_narration(text: str):
     answer = block[m_ans.end():].strip()
 
     plain = ""
-    spans = []
+    spans = []   # (char_start, char_end, x, y, dir|"")
     pos = 0
-    for mo in re.finditer(r"\{\s*стрелка\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\}(.*?)\{\s*/\s*\}",
-                          expl, re.S):
+    for mo in re.finditer(
+            r"\{\s*стрелка\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([a-zA-Zа-яА-Я]{1,2}))?\s*\}(.*?)\{\s*/\s*\}",
+            expl, re.S):
         plain += expl[pos:mo.start()]
-        phrase = mo.group(3)
+        phrase = mo.group(4)
         cs = len(plain)
         plain += phrase
         ce = len(plain)
-        spans.append((cs, ce, float(mo.group(1)), float(mo.group(2))))
+        spans.append((cs, ce, float(mo.group(1)), float(mo.group(2)), (mo.group(3) or "").lower()))
         pos = mo.end()
     plain += expl[pos:]
     return question, plain, spans, answer
@@ -114,10 +115,11 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   .wrap img { display:block; width:1040px; height:auto; max-height:1860px;
               border-radius:26px; box-shadow:0 24px 80px rgba(0,0,0,.5); }
   .arrows { position:absolute; inset:0; pointer-events:none; }
-  .arrow { position:absolute; width:112px; height:112px; opacity:0;
-           transform: translate(-72%,-72%) scale(.55);
+  .arrow { position:absolute; width:112px; height:112px; --r:0deg; opacity:0;
+           margin-left:-12px; margin-top:-12px; transform-origin:12px 12px;
+           transform: rotate(var(--r)) scale(.55);
            transition: opacity .16s ease-out, transform .16s ease-out; }
-  .arrow.show { opacity:1; transform: translate(-72%,-72%) scale(1); }
+  .arrow.show { opacity:1; transform: rotate(var(--r)) scale(1); }
   .arrow svg { width:100%; height:100%; filter: drop-shadow(0 3px 7px rgba(0,0,0,.55)); }
   .timer { position:fixed; top:50%; left:50%; z-index:30;
            width:340px; height:340px; border-radius:50%;
@@ -153,10 +155,17 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   img.src = D.image;
   document.getElementById("bg").style.backgroundImage = "url(" + D.image + ")";
   const arrowsEl = document.getElementById("arrows");
-  const ARROW_SVG = '<svg viewBox="0 0 100 100"><g stroke="#ff2323" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="16" y1="16" x2="72" y2="72"/><path d="M72 44 L72 72 L44 72"/></g></svg>';
-  function showArrow(x,y){
+  const ARROW_SVG = '<svg viewBox="0 0 112 112"><g stroke="#ff2323" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="104" y1="104" x2="12" y2="12"/><path d="M12 46 L12 12 L46 12"/></g></svg>';
+  function dirAngle(x,dir){
+    const m={l:135,r:315,t:225,b:45,tl:0,tr:90,br:180,bl:270};
+    if(dir && m[dir]!==undefined) return m[dir];
+    return x<0.5 ? 315 : 135;   // авто: объект слева → остриё влево; справа → вправо
+  }
+  function showArrow(x,y,dir){
     const a = document.createElement("div"); a.className="arrow";
-    a.style.left=(x*100)+"%"; a.style.top=(y*100)+"%"; a.innerHTML=ARROW_SVG;
+    a.style.left=(x*100)+"%"; a.style.top=(y*100)+"%";
+    a.style.setProperty("--r", dirAngle(x,dir)+"deg");
+    a.innerHTML=ARROW_SVG;
     arrowsEl.appendChild(a); requestAnimationFrame(()=>a.classList.add("show"));
   }
   function clearArrows(){ arrowsEl.querySelectorAll(".arrow").forEach(a=>{
@@ -183,7 +192,7 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
       const ll=document.createElement("div"); ll.className="glab"; ll.textContent=f.toFixed(1);
       lt.style.transform="translateX(-50%)"; ll.style.left="2px"; ll.style.top=(f*100)+"%"; g.appendChild(ll);
     }
-    (D.arrows||[]).forEach(p=>showArrow(p[0],p[1]));
+    (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
   }
   window.__tt = { ready:true, showArrow, clearArrows, countdown };
@@ -268,7 +277,7 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
 
     # Режим калибровки: сохранить картинку с сеткой координат и текущими стрелками.
     if grid:
-        arrows = [(x, y) for _, _, x, y in spans]
+        arrows = [(x, y, d) for _, _, x, y, d in spans]
         page = build_page(image_uri, grid=True, arrows=arrows)
         await screenshot_page(page, out, executable_path=chromium_path)
         print(f"🧭 Сетка координат готова: {out}")
@@ -317,8 +326,8 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     events.append((round(qd, 3), f"window.__tt.countdown({tp})"))
     t_expl = qd + td_
     L = max(1, len(expl_txt))
-    for cs, ce, x, y in spans:
-        events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y})"))
+    for cs, ce, x, y, d in spans:
+        events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y},'{d}')"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
     events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
     total = qd + td_ + ed + ad
