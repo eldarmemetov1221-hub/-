@@ -69,6 +69,17 @@ CLEAN_CSS = """
 # JS: гасит рекламные всплывашки Яндекса и отключает авто-перелистывание сайта,
 # чтобы зелёный ответ успевал повисеть, а мы сами решали, когда листать.
 INIT_JS = """
+  // Видим ли элемент на экране (не display:none/visibility:hidden/opacity:0,
+  // и есть реальные размеры). Сайт держит в DOM лишние «сжатые» варианты
+  // скрытыми — по этому фильтру их отсеиваем, берём только реально показанные.
+  window.__vis = function (el) {
+    if (!el) return false;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden' ||
+        parseFloat(s.opacity || '1') === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
   window.yaContextCb = { push: function(){} };
   try {
     Object.defineProperty(window, 'PDD_USER_SETTINGS', {
@@ -137,7 +148,8 @@ async def _read_current(page) -> dict:
       const num = document.querySelector('.bilet__qs-num');
       const q = document.querySelector('.bilet__question');
       const list = document.querySelector('.bilet__answer-list');
-      const btns = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
+      const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
+      const btns = items.map(it => it.querySelector('.bilet__answer-btn') || it);
       return {
         num: num ? parseInt(num.textContent.trim(), 10) : null,
         question: q ? q.textContent.trim() : '',
@@ -149,7 +161,8 @@ async def _read_current(page) -> dict:
 async def _click_answer(page, index: int) -> bool:
     ok = await page.evaluate("""(i) => {
       const list = document.querySelector('.bilet__answer-list');
-      const btns = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
+      const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
+      const btns = items.map(it => it.querySelector('.bilet__answer-btn') || it);
       if (i < 0 || i >= btns.length) return false;
       btns[i].scrollIntoView({block:'center'});
       btns[i].click();
@@ -179,8 +192,9 @@ async def _read_hint_and_options(page) -> dict:
       // .bilet__answer-item — так чужие чипсы/подсказки с тем же классом кнопки
       // из других блоков не попадут в варианты. Плюс дедуп по тексту.
       const list = document.querySelector('.bilet__answer-list');
-      let raw = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
-      if (!raw.length && list) raw = [...list.querySelectorAll('.bilet__answer-btn')];
+      let items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
+      let raw = items.map(it => it.querySelector('.bilet__answer-btn') || it);
+      if (!raw.length && list) raw = [...list.querySelectorAll('.bilet__answer-btn')].filter(window.__vis);
       const seen = new Set(); const opts = [];
       for (const b of raw) {
         const txt = b.textContent.trim();
@@ -201,7 +215,7 @@ async def _find_green_option(page) -> int:
     фону или по классу. -1 если зелёного нет."""
     return await page.evaluate("""() => {
       const list = document.querySelector('.bilet__answer-list');
-      const items = list ? [...list.querySelectorAll('.bilet__answer-item')] : [];
+      const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
       for (let i = 0; i < items.length; i++) {
         const btn = items[i].querySelector('.bilet__answer-btn') || items[i];
         for (const el of [items[i], btn]) {
