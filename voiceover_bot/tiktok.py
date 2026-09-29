@@ -96,9 +96,9 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
               border-radius:26px; box-shadow:0 24px 80px rgba(0,0,0,.5); }
   .arrows { position:absolute; inset:0; pointer-events:none; }
   .arrow { position:absolute; width:150px; height:150px; opacity:0;
-           transform: translate(-50%,-50%) scale(.55);
+           transform: translate(-72%,-72%) scale(.55);
            transition: opacity .18s ease-out, transform .18s ease-out; }
-  .arrow.show { opacity:1; transform: translate(-50%,-50%) scale(1); }
+  .arrow.show { opacity:1; transform: translate(-72%,-72%) scale(1); }
   .arrow svg { width:100%; height:100%; filter: drop-shadow(0 3px 7px rgba(0,0,0,.55)); }
   .think { position:absolute; top:24px; left:50%; transform:translateX(-50%);
            background:#e2574c; color:#fff; font-family:-apple-system,Arial,sans-serif;
