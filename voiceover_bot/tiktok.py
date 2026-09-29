@@ -51,6 +51,25 @@ from make_video import read_text_any
 #  Разбор текста озвучки
 # --------------------------------------------------------------------------- #
 
+def make_ticks(seconds: int, out: str) -> None:
+    """Дорожка «тик-тик» на N секунд: короткий щелчок в начале каждой секунды."""
+    import subprocess as sp
+    with tempfile.TemporaryDirectory() as td:
+        tick = str(Path(td) / "t.wav")
+        sil = str(Path(td) / "s.wav")
+        sp.run([FFMPEG, "-hide_banner", "-y", "-f", "lavfi", "-t", "0.045",
+                "-i", "sine=frequency=1200:sample_rate=48000", "-ac", "2",
+                "-af", "volume=0.5", tick], capture_output=True, check=True)
+        sp.run([FFMPEG, "-hide_banner", "-y", "-f", "lavfi", "-t", "0.955",
+                "-i", "anullsrc=r=48000:cl=stereo", "-ac", "2", sil],
+               capture_output=True, check=True)
+        lst = Path(td) / "l.txt"
+        lst.write_text(f"file '{tick}'\nfile '{sil}'\n" * int(seconds), encoding="utf-8")
+        sp.run([FFMPEG, "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(lst), "-ar", "48000", "-ac", "2", out],
+               capture_output=True, check=True)
+
+
 def parse_narration(text: str):
     """(вопрос, пояснение_без_тегов, стрелки, ответ).
     стрелки: список (char_start, char_end, x, y) — позиции фразы в пояснении."""
@@ -95,16 +114,23 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   .wrap img { display:block; width:1040px; height:auto; max-height:1860px;
               border-radius:26px; box-shadow:0 24px 80px rgba(0,0,0,.5); }
   .arrows { position:absolute; inset:0; pointer-events:none; }
-  .arrow { position:absolute; width:150px; height:150px; opacity:0;
+  .arrow { position:absolute; width:112px; height:112px; opacity:0;
            transform: translate(-72%,-72%) scale(.55);
-           transition: opacity .18s ease-out, transform .18s ease-out; }
+           transition: opacity .16s ease-out, transform .16s ease-out; }
   .arrow.show { opacity:1; transform: translate(-72%,-72%) scale(1); }
   .arrow svg { width:100%; height:100%; filter: drop-shadow(0 3px 7px rgba(0,0,0,.55)); }
-  .think { position:absolute; top:24px; left:50%; transform:translateX(-50%);
-           background:#e2574c; color:#fff; font-family:-apple-system,Arial,sans-serif;
-           font-size:46px; font-weight:800; padding:14px 40px; border-radius:999px;
-           box-shadow:0 8px 24px rgba(0,0,0,.4); opacity:0; transition:opacity .2s; z-index:5; }
-  .think.show { opacity:1; }
+  .timer { position:fixed; top:50%; left:50%; z-index:30;
+           width:340px; height:340px; border-radius:50%;
+           background:rgba(15,17,22,.72); border:12px solid #fff;
+           box-shadow:0 24px 70px rgba(0,0,0,.55);
+           display:flex; align-items:center; justify-content:center;
+           font:900 200px -apple-system,Arial,sans-serif; color:#fff;
+           opacity:0; transform:translate(-50%,-50%) scale(.7);
+           transition:opacity .2s ease-out; }
+  .timer.show { opacity:1; }
+  .timer.tick { animation: tk .5s ease-out; }
+  @keyframes tk { 0%{transform:translate(-50%,-50%) scale(1.18);}
+                  100%{transform:translate(-50%,-50%) scale(1);} }
   .grid { position:absolute; inset:0; pointer-events:none; }
   .gl { position:absolute; background:rgba(255,0,0,.45); }
   .gl.h { left:0; right:0; height:2px; }
@@ -118,8 +144,8 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <img id="img" alt="">
     <div class="arrows" id="arrows"></div>
     <div class="grid" id="grid"></div>
-    <div class="think" id="think">5</div>
   </div>
+  <div class="timer" id="timer">5</div>
 <script id="payload" type="application/json">__DATA__</script>
 <script>
   const D = JSON.parse(document.getElementById("payload").textContent);
@@ -136,10 +162,14 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   function clearArrows(){ arrowsEl.querySelectorAll(".arrow").forEach(a=>{
     a.classList.remove("show"); setTimeout(()=>a.remove(),200); }); }
   function countdown(sec){
-    const el = document.getElementById("think"); el.classList.add("show");
+    const el = document.getElementById("timer");
     let n = Math.round(sec); el.textContent = n;
-    const iv = setInterval(()=>{ n--; if(n>=1){ el.textContent = n; }
-      else { clearInterval(iv); el.classList.remove("show"); } }, 1000);
+    el.classList.add("show","tick");
+    setTimeout(()=>el.classList.remove("tick"), 500);
+    const iv = setInterval(()=>{ n--;
+      if(n>=1){ el.textContent = n; el.classList.remove("tick");
+                void el.offsetWidth; el.classList.add("tick"); }
+      else { clearInterval(iv); el.classList.remove("show","tick"); } }, 1000);
   }
   // Режим калибровки: сетка координат + все стрелки статично.
   if (D.grid) {
@@ -270,23 +300,28 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         p.write_bytes(data)
         return str(p), media_duration(str(p))
 
+    tp = max(1, int(round(think_pause)))
     clips, gaps, events = [], [], []
     qp, qd = await voice_to(question_txt, "q.mp3")
-    clips.append((qp, qd)); gaps.append(think_pause)
+    clips.append((qp, qd)); gaps.append(0.0)
+    ticks_path = str(tmp / "ticks.wav")
+    make_ticks(tp, ticks_path)
+    td_ = media_duration(ticks_path)
+    clips.append((ticks_path, td_)); gaps.append(0.0)   # пауза с тиканьем
     ep, ed = await voice_to(expl_txt, "expl.mp3")
     clips.append((ep, ed)); gaps.append(0.0)
     ap, ad = await voice_to("Ответ. " + answer_txt, "a.mp3")
     clips.append((ap, ad)); gaps.append(0.0)
 
     events.append((0.0, "window.__tt.clearArrows()"))
-    events.append((round(qd, 3), f"window.__tt.countdown({int(round(think_pause))})"))
-    t_expl = qd + think_pause
+    events.append((round(qd, 3), f"window.__tt.countdown({tp})"))
+    t_expl = qd + td_
     L = max(1, len(expl_txt))
     for cs, ce, x, y in spans:
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y})"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
-    events.append((round(qd + think_pause + ed, 3), "window.__tt.clearArrows()"))
-    total = qd + think_pause + ed + ad
+    events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
+    total = qd + td_ + ed + ad
     print(f"🎞 Длительность: {int(total // 60)}:{int(total % 60):02d}")
 
     page = build_page(image_uri)
