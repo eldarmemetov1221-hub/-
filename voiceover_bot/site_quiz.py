@@ -392,7 +392,11 @@ async def dump_bilet(url: str, bilet: int, n: int, out_txt: str, img_dir: str | 
             lines.append(f"{k}. {o}")
         lines.append(f"Ответ: {r['correct'] + 1}")
         if r["expl"]:
-            lines.append(f"Пояснение: {r['expl']}")
+            # Схлопываем переносы/повторные пробелы в одну строку — иначе
+            # «1. …» из пояснения окажется на отдельной строке и парсер примет
+            # её за лишний вариант ответа.
+            expl_one = re.sub(r"\s+", " ", r["expl"]).strip()
+            lines.append(f"Пояснение: {expl_one}")
         lines.append("")
     Path(out_txt).write_text("\n".join(lines), encoding="utf-8")
     print(f"\n💾 Билет собран с сайта: {out_txt} ({len(rows)} вопросов, картинок: {len(have_img)})")

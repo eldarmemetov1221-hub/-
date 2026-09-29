@@ -358,9 +358,9 @@ def parse_questions(text: str) -> list[Question]:
                 answer_raw = ma.group(1)
             elif me:
                 explanation = (explanation + " " + me.group(1)).strip()
-            elif mo:
+            elif mo and not (answer_raw or explanation):
                 options.append(mo.group(2))
-            elif md:
+            elif md and not (answer_raw or explanation):
                 options.append(md.group(1))
             elif options or answer_raw or explanation:
                 # Строки после вариантов/ответа считаем продолжением пояснения.
