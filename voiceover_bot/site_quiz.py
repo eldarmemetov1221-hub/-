@@ -136,7 +136,8 @@ async def _read_current(page) -> dict:
     return await page.evaluate("""() => {
       const num = document.querySelector('.bilet__qs-num');
       const q = document.querySelector('.bilet__question');
-      const btns = [...document.querySelectorAll('.bilet__answer-list .bilet__answer-btn')];
+      const list = document.querySelector('.bilet__answer-list');
+      const btns = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
       return {
         num: num ? parseInt(num.textContent.trim(), 10) : null,
         question: q ? q.textContent.trim() : '',
@@ -147,7 +148,8 @@ async def _read_current(page) -> dict:
 
 async def _click_answer(page, index: int) -> bool:
     ok = await page.evaluate("""(i) => {
-      const btns = [...document.querySelectorAll('.bilet__answer-list .bilet__answer-btn')];
+      const list = document.querySelector('.bilet__answer-list');
+      const btns = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
       if (i < 0 || i >= btns.length) return false;
       btns[i].scrollIntoView({block:'center'});
       btns[i].click();
@@ -173,8 +175,20 @@ async def _read_hint_and_options(page) -> dict:
       const t = el => el ? el.textContent.trim() : '';
       const hint = (t(document.querySelector('.bilet__hint')) + ' ' +
                     t(document.querySelector('.bilet__expl-hint-text'))).trim();
-      const opts = [...document.querySelectorAll('.bilet__answer-list .bilet__answer-btn')]
-                     .map(b => b.textContent.trim());
+      // Берём ТОЛЬКО первый (основной) список ответов и только кнопки внутри
+      // .bilet__answer-item — так чужие чипсы/подсказки с тем же классом кнопки
+      // из других блоков не попадут в варианты. Плюс дедуп по тексту.
+      const list = document.querySelector('.bilet__answer-list');
+      let raw = list ? [...list.querySelectorAll('.bilet__answer-item .bilet__answer-btn')] : [];
+      if (!raw.length && list) raw = [...list.querySelectorAll('.bilet__answer-btn')];
+      const seen = new Set(); const opts = [];
+      for (const b of raw) {
+        const txt = b.textContent.trim();
+        if (!txt) continue;
+        const key = txt.toLowerCase().replace(/ё/g,'е').replace(/\\s+/g,' ');
+        if (seen.has(key)) continue;
+        seen.add(key); opts.push(txt);
+      }
       const numEl = document.querySelector('.bilet__qs-num');
       const q = document.querySelector('.bilet__question');
       return {hint, opts, question: q ? q.textContent.trim() : '',
@@ -186,7 +200,8 @@ async def _find_green_option(page) -> int:
     """Индекс варианта, который сайт подсветил ЗЕЛЁНЫМ (правильный) — по зелёному
     фону или по классу. -1 если зелёного нет."""
     return await page.evaluate("""() => {
-      const items = [...document.querySelectorAll('.bilet__answer-item')];
+      const list = document.querySelector('.bilet__answer-list');
+      const items = list ? [...list.querySelectorAll('.bilet__answer-item')] : [];
       for (let i = 0; i < items.length; i++) {
         const btn = items[i].querySelector('.bilet__answer-btn') || items[i];
         for (const el of [items[i], btn]) {
