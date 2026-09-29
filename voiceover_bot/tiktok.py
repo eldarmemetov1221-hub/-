@@ -105,13 +105,20 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
            font-size:46px; font-weight:800; padding:14px 40px; border-radius:999px;
            box-shadow:0 8px 24px rgba(0,0,0,.4); opacity:0; transition:opacity .2s; z-index:5; }
   .think.show { opacity:1; }
+  .grid { position:absolute; inset:0; pointer-events:none; }
+  .gl { position:absolute; background:rgba(255,0,0,.45); }
+  .gl.h { left:0; right:0; height:2px; }
+  .gl.v { top:0; bottom:0; width:2px; }
+  .glab { position:absolute; font:700 22px Arial; color:#fff; background:rgba(200,0,0,.8);
+          padding:2px 7px; border-radius:6px; }
 </style></head>
 <body>
   <div class="bg" id="bg"></div>
   <div class="wrap">
     <img id="img" alt="">
     <div class="arrows" id="arrows"></div>
-    <div class="think" id="think">Думай…</div>
+    <div class="grid" id="grid"></div>
+    <div class="think" id="think">5</div>
   </div>
 <script id="payload" type="application/json">__DATA__</script>
 <script>
@@ -128,15 +135,55 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   }
   function clearArrows(){ arrowsEl.querySelectorAll(".arrow").forEach(a=>{
     a.classList.remove("show"); setTimeout(()=>a.remove(),200); }); }
-  function think(on){ document.getElementById("think").classList.toggle("show", !!on); }
-  window.__tt = { ready:true, showArrow, clearArrows, think };
+  function countdown(sec){
+    const el = document.getElementById("think"); el.classList.add("show");
+    let n = Math.round(sec); el.textContent = n;
+    const iv = setInterval(()=>{ n--; if(n>=1){ el.textContent = n; }
+      else { clearInterval(iv); el.classList.remove("show"); } }, 1000);
+  }
+  // Режим калибровки: сетка координат + все стрелки статично.
+  if (D.grid) {
+    const g = document.getElementById("grid");
+    for (let i=1;i<10;i++){
+      const f=i/10;
+      const h=document.createElement("div"); h.className="gl h"; h.style.top=(f*100)+"%"; g.appendChild(h);
+      const v=document.createElement("div"); v.className="gl v"; v.style.left=(f*100)+"%"; g.appendChild(v);
+      const lt=document.createElement("div"); lt.className="glab"; lt.textContent=f.toFixed(1);
+      lt.style.top="2px"; lt.style.left=(f*100)+"%"; g.appendChild(lt);
+      const ll=document.createElement("div"); ll.className="glab"; ll.textContent=f.toFixed(1);
+      lt.style.transform="translateX(-50%)"; ll.style.left="2px"; ll.style.top=(f*100)+"%"; g.appendChild(ll);
+    }
+    (D.arrows||[]).forEach(p=>showArrow(p[0],p[1]));
+    arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
+  }
+  window.__tt = { ready:true, showArrow, clearArrows, countdown };
 </script>
 </body></html>"""
 
 
-def build_page(image_uri):
-    payload = json.dumps({"image": image_uri}, ensure_ascii=False).replace("</", "<\\/")
+def build_page(image_uri, grid=False, arrows=None):
+    data = {"image": image_uri, "grid": grid, "arrows": arrows or []}
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     return _PAGE.replace("__DATA__", payload)
+
+
+async def screenshot_page(page_html, out_png, executable_path=None):
+    from playwright.async_api import async_playwright
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(page_html)
+        page_uri = Path(f.name).as_uri()
+    exe = executable_path or _find_chromium()
+    launch_kw = {"args": ["--no-sandbox", "--force-color-profile=srgb"]}
+    if exe:
+        launch_kw["executable_path"] = exe
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(**launch_kw)
+        page = await browser.new_page(viewport={"width": 1080, "height": 1920})
+        await page.goto(page_uri)
+        await page.wait_for_function("window.__tt && window.__tt.ready")
+        await asyncio.sleep(0.4)
+        await page.screenshot(path=out_png)
+        await browser.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -185,9 +232,19 @@ async def record(page_html, events, total_dur, out_dir, executable_path=None):
 # --------------------------------------------------------------------------- #
 
 async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
-                think_pause, chromium_path):
+                think_pause, chromium_path, grid=False):
     image_uri = _image_data_uri(Path(image_path))
     question_txt, expl_txt, spans, answer_txt = parse_narration(read_text_any(speak_txt))
+
+    # Режим калибровки: сохранить картинку с сеткой координат и текущими стрелками.
+    if grid:
+        arrows = [(x, y) for _, _, x, y in spans]
+        page = build_page(image_uri, grid=True, arrows=arrows)
+        await screenshot_page(page, out, executable_path=chromium_path)
+        print(f"🧭 Сетка координат готова: {out}")
+        print("   Красные стрелки — где сейчас стоят твои координаты. Подгони цифры "
+              "по подписям сетки (0.0–1.0) и пересобери видео.")
+        return
 
     if engine == "yandex":
         import os
@@ -222,9 +279,8 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     clips.append((ap, ad)); gaps.append(0.0)
 
     events.append((0.0, "window.__tt.clearArrows()"))
-    events.append((round(qd, 3), "window.__tt.think(true)"))
+    events.append((round(qd, 3), f"window.__tt.countdown({int(round(think_pause))})"))
     t_expl = qd + think_pause
-    events.append((round(t_expl, 3), "window.__tt.think(false)"))
     L = max(1, len(expl_txt))
     for cs, ce, x, y in spans:
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y})"))
@@ -257,11 +313,14 @@ def main():
     ap.add_argument("--rate", default="+0%")
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--think", type=float, default=5.0, help="пауза «зритель думает», сек")
+    ap.add_argument("--grid", action="store_true",
+                    help="калибровка: сохранить PNG с сеткой координат и текущими стрелками "
+                         "(output укажи как .png), видео не собирать")
     ap.add_argument("--chromium-path", default=None)
     args = ap.parse_args()
     asyncio.run(build(
         args.image, args.output, args.speak, args.voice, args.engine,
-        args.rate, args.pitch, args.think, args.chromium_path,
+        args.rate, args.pitch, args.think, args.chromium_path, grid=args.grid,
     ))
 
 
