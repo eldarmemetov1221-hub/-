@@ -85,6 +85,15 @@ async def main(bilet: int, qnum: int) -> None:
             c = await cur_num()
             if c == qnum:
                 break
+            # Ответить (жмём первый вариант из зоны вопроса) — иначе сайт не
+            # пускает на следующий вопрос.
+            await page.evaluate("""()=>{
+              const L=document.querySelector('.bilet__qs-zone .bilet__answer-list')
+                      ||document.querySelector('.bilet__answer-list');
+              const b=L&&L.querySelector('.bilet__answer-item .bilet__answer-btn');
+              if(b)b.click();
+            }""")
+            await asyncio.sleep(0.4)
             await page.evaluate("()=>{const b=document.querySelector('.bilet__next-btn'); if(b)b.click();}")
             try:
                 await page.wait_for_function(

@@ -147,7 +147,11 @@ async def _read_current(page) -> dict:
     return await page.evaluate("""() => {
       const num = document.querySelector('.bilet__qs-num');
       const q = document.querySelector('.bilet__question');
-      const list = document.querySelector('.bilet__answer-list');
+      // ТОЛЬКО список из зоны вопроса. Второй .bilet__answer-list живёт в
+      // блоке .bilet__err-bilets («работа над ошибками») и подсовывает чужие
+      // короткие варианты — его игнорируем.
+      const list = document.querySelector('.bilet__qs-zone .bilet__answer-list')
+                   || document.querySelector('.bilet__answer-list');
       const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
       const btns = items.map(it => it.querySelector('.bilet__answer-btn') || it);
       return {
@@ -160,7 +164,11 @@ async def _read_current(page) -> dict:
 
 async def _click_answer(page, index: int) -> bool:
     ok = await page.evaluate("""(i) => {
-      const list = document.querySelector('.bilet__answer-list');
+      // ТОЛЬКО список из зоны вопроса. Второй .bilet__answer-list живёт в
+      // блоке .bilet__err-bilets («работа над ошибками») и подсовывает чужие
+      // короткие варианты — его игнорируем.
+      const list = document.querySelector('.bilet__qs-zone .bilet__answer-list')
+                   || document.querySelector('.bilet__answer-list');
       const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
       const btns = items.map(it => it.querySelector('.bilet__answer-btn') || it);
       if (i < 0 || i >= btns.length) return false;
@@ -191,7 +199,11 @@ async def _read_hint_and_options(page) -> dict:
       // Берём ТОЛЬКО первый (основной) список ответов и только кнопки внутри
       // .bilet__answer-item — так чужие чипсы/подсказки с тем же классом кнопки
       // из других блоков не попадут в варианты. Плюс дедуп по тексту.
-      const list = document.querySelector('.bilet__answer-list');
+      // ТОЛЬКО список из зоны вопроса. Второй .bilet__answer-list живёт в
+      // блоке .bilet__err-bilets («работа над ошибками») и подсовывает чужие
+      // короткие варианты — его игнорируем.
+      const list = document.querySelector('.bilet__qs-zone .bilet__answer-list')
+                   || document.querySelector('.bilet__answer-list');
       let items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
       let raw = items.map(it => it.querySelector('.bilet__answer-btn') || it);
       if (!raw.length && list) raw = [...list.querySelectorAll('.bilet__answer-btn')].filter(window.__vis);
@@ -214,7 +226,11 @@ async def _find_green_option(page) -> int:
     """Индекс варианта, который сайт подсветил ЗЕЛЁНЫМ (правильный) — по зелёному
     фону или по классу. -1 если зелёного нет."""
     return await page.evaluate("""() => {
-      const list = document.querySelector('.bilet__answer-list');
+      // ТОЛЬКО список из зоны вопроса. Второй .bilet__answer-list живёт в
+      // блоке .bilet__err-bilets («работа над ошибками») и подсовывает чужие
+      // короткие варианты — его игнорируем.
+      const list = document.querySelector('.bilet__qs-zone .bilet__answer-list')
+                   || document.querySelector('.bilet__answer-list');
       const items = list ? [...list.querySelectorAll('.bilet__answer-item')].filter(window.__vis) : [];
       for (let i = 0; i < items.length; i++) {
         const btn = items[i].querySelector('.bilet__answer-btn') || items[i];
