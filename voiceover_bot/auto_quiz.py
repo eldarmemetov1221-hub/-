@@ -188,13 +188,14 @@ class Question:
             parts.append(f"{i}. {opt.strip()}")
         return "  ".join(_close(p) for p in parts if p.strip())
 
-    def narration_answer(self) -> str:
-        """Вторая часть: «правильный ответ» + пояснение (её читаем, когда уже
-        загорелся зелёный)."""
+    def narration_answer(self, include_expl: bool = False) -> str:
+        """Вторая часть: «правильный ответ» (+ пояснение, только если явно
+        include_expl=True). По умолчанию пояснение НЕ читаем — билет короткий:
+        вопрос -> варианты -> «правильный ответ» -> зелёный -> дальше."""
         parts = []
         if 0 <= self.correct < len(self.options):
             parts.append(f"Правильный ответ: {self.options[self.correct].strip()}.")
-        if self.explanation:
+        if include_expl and self.explanation:
             parts.append(self.explanation.strip())
         return "  ".join(_close(p) for p in parts if p.strip())
 
@@ -810,6 +811,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
                 speak_map: dict[int, str] | None = None, green_frac: float = 0.6,
                 before: float = 1.5, start_gap: float = 1.0, show_expl: bool = False,
+                read_expl: bool = False,
                 chromium_path: str | None = None) -> dict:
     speak_map = speak_map or {}
     green_frac = min(1.0, max(0.0, green_frac))
@@ -883,7 +885,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             if not re.match(r"\s*Вопрос\b", intro_text, re.IGNORECASE):
                 intro_text = f"{q.announce()} {intro_text}".strip()
         else:
-            intro_text, answer_text = q.narration_intro(), q.narration_answer()
+            intro_text, answer_text = q.narration_intro(), q.narration_answer(include_expl=read_expl)
         tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
         mid = 0.0
         # 0) пауза в начале: вопрос открылся -> тишина start_gap -> потом читаем.
@@ -951,6 +953,9 @@ def main() -> None:
                     help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
     ap.add_argument("--show-expl", action="store_true",
                     help="показывать текст пояснения на экране (по умолчанию скрыт)")
+    ap.add_argument("--read-expl", action="store_true",
+                    help="читать пояснение ВСЛУХ (по умолчанию НЕ читается — билет короткий: "
+                         "вопрос → варианты → «правильный ответ» → зелёный → дальше)")
     ap.add_argument("--reveal", type=float, default=0.5, help="(не используется)")
     ap.add_argument("--green", type=float, default=0.6,
                     help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
@@ -1017,7 +1022,8 @@ def main() -> None:
         width=args.width, height=args.height, title=title,
         images_dir=images_dir, base_dir=base_dir, speak_map=speak_map,
         green_frac=args.green, before=args.before, start_gap=args.start,
-        show_expl=args.show_expl, chromium_path=args.chromium_path,
+        show_expl=args.show_expl, read_expl=args.read_expl,
+        chromium_path=args.chromium_path,
     ))
 
 
