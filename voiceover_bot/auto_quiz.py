@@ -849,7 +849,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
+    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 3)
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="autoquiz_"))
