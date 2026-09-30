@@ -897,9 +897,9 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
             d2 = media_duration(str(p2)); clips.append((str(p2), d2))
         gaps.append(tail)
-        # Зелёный — ПОСЛЕ того как голос произнёс «Ответ …» (в конце 2-го куска),
-        # плюс короткая пауза before. Не раньше, чтобы не палить ответ заранее.
-        reveal_at = start_gap + d1 + mid + d2 + before
+        # Зелёный — РОВНО на конце последнего слова «Ответ …» (без зазора before).
+        # Голос договорил -> сразу зелёный -> следующий вопрос.
+        reveal_at = start_gap + d1 + mid + d2
         schedule.append({"dur": round(start_gap + d1 + mid + d2 + before + pad, 3),
                          "revealAt": round(reveal_at, 3)})
 
