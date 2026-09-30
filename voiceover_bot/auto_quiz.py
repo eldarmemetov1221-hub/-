@@ -863,51 +863,61 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     gaps: list[float] = []
     schedule: list[dict] = []
     for q in questions:
-        # Если задан «мой текст» (--speak): ВОПРОС читаем авто (без вариантов),
-        # а ПОЯСНЕНИЕ — твоими словами. Иначе — полностью авто-озвучка.
+        # Делим озвучку на ТРИ куска: вопрос -> разбор -> «Ответ». Между ними
+        # паузы-вдохи, чтобы голос не читал всё слитной простынёй («подряд»).
         prose = speak_map.get(q.number)
         if prose:
-            # Твой текст читаем КАК ЕСТЬ. Делим по слову «Ответ:» — до него
-            # вопрос+пояснение (тут зажигаем зелёный), после — сам ответ.
+            # Твой текст (--speak). Отрезаем ответ по слову «Ответ:».
             m = re.search(r"Ответ\s*:\s*", prose)
             if m:
-                intro_text = prose[:m.start()].strip()
+                head = prose[:m.start()].strip()
                 answer_text = "Ответ. " + prose[m.end():].strip()
             else:
-                intro_text, answer_text = prose, ""
-            if not intro_text:                        # на всякий случай
-                intro_text = prose
-                answer_text = ""
-            # добавляем «Вопрос N.» в начало, если твой текст его не содержит
-            if not re.match(r"\s*Вопрос\b", intro_text, re.IGNORECASE):
-                intro_text = f"{q.announce()} {intro_text}".strip()
+                head, answer_text = prose.strip(), ""
+            # «Вопрос N.» в начало, если его нет.
+            if not re.match(r"\s*Вопрос\b", head, re.IGNORECASE):
+                head = f"{q.announce()} {head}".strip()
+            # Отделяем сам вопрос (до первого «?») от разбора.
+            qm = re.search(r"\?", head)
+            if qm:
+                q_part = head[:qm.end()].strip()
+                expl_part = head[qm.end():].strip()
+            else:
+                q_part, expl_part = head, ""
         else:
-            intro_text = q.narration_intro(include_expl=read_expl)
-            answer_text = q.narration_answer()
-        tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
-        mid = 0.0
-        # 0) пауза в начале: вопрос открылся -> тишина start_gap -> потом читаем.
+            q_part = q.narration_intro(include_expl=False)   # «Вопрос N.» + вопрос
+            expl_part = q.explanation.strip() if read_expl else ""
+            answer_text = q.narration_answer()               # «Ответ. X»
+
+        tail = round(before + pad, 3)   # тишина в конце (before + после зелёного)
+        gap_q_expl = 0.6 if expl_part else 0.0   # вдох между вопросом и разбором
+        gap_expl_ans = 0.45 if answer_text else 0.0  # вдох перед «Ответ»
+
+        # 0) вопрос открылся -> тишина -> читаем.
         clips.append((str(silence), start_gap)); gaps.append(0.0)
-        # 1) вопрос (у --speak — твоими словами).
-        a1 = await synth(intro_text)
+        # 1) сам вопрос.
+        a1 = await synth(q_part)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
-        d1 = media_duration(str(p1))
-        clips.append((str(p1), d1))
-        # 2) пояснение/ответ.
-        ans = answer_text
+        d1 = media_duration(str(p1)); clips.append((str(p1), d1))
+        # 2) разбор (пояснение) — после паузы.
         d2 = 0.0
-        if ans:
-            mid = 0.45                 # короткая пауза-вдох между вопросом и пояснением
-            gaps.append(mid)
-            a2 = await synth(ans)
+        if expl_part:
+            gaps.append(gap_q_expl)
+            a2 = await synth(expl_part)
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
-            d2 = media_duration(str(p2))
-            clips.append((str(p2), d2))
+            d2 = media_duration(str(p2)); clips.append((str(p2), d2))
+        # 3) «Ответ …» — после паузы, тут зажигаем ЗЕЛЁНЫЙ.
+        d3 = 0.0
+        if answer_text:
+            gaps.append(gap_expl_ans)
+            a3 = await synth(answer_text)
+            p3 = tmp / f"q{q.number:02d}c.mp3"; p3.write_bytes(a3)
+            d3 = media_duration(str(p3)); clips.append((str(p3), d3))
         gaps.append(tail)
-        # Порядок: открылся -> пауза -> читает -> пауза -> ЗЕЛЁНЫЙ -> пауза -> дальше.
-        reveal_at = start_gap + d1 + mid + d2 + before
-        schedule.append({"dur": round(start_gap + d1 + mid + d2 + before + pad, 3),
-                         "revealAt": round(reveal_at, 3)})
+        # Зелёный — ровно когда голос произносит «Ответ» (начало 3-го куска).
+        reveal_at = start_gap + d1 + gap_q_expl + d2 + gap_expl_ans
+        total_q = start_gap + d1 + gap_q_expl + d2 + gap_expl_ans + d3 + before + pad
+        schedule.append({"dur": round(total_q, 3), "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
