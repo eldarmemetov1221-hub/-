@@ -849,7 +849,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 3)
+    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="autoquiz_"))
@@ -863,61 +863,43 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
     gaps: list[float] = []
     schedule: list[dict] = []
     for q in questions:
-        # Делим озвучку на ТРИ куска: вопрос -> разбор -> «Ответ». Между ними
-        # паузы-вдохи, чтобы голос не читал всё слитной простынёй («подряд»).
+        # ДВА куска на вопрос: «вопрос+разбор» -> «Ответ». Делим по слову «Ответ:».
         prose = speak_map.get(q.number)
         if prose:
-            # Твой текст (--speak). Отрезаем ответ по слову «Ответ:».
             m = re.search(r"Ответ\s*:\s*", prose)
             if m:
-                head = prose[:m.start()].strip()
+                intro_text = prose[:m.start()].strip()
                 answer_text = "Ответ. " + prose[m.end():].strip()
             else:
-                head, answer_text = prose.strip(), ""
-            # «Вопрос N.» в начало, если его нет.
-            if not re.match(r"\s*Вопрос\b", head, re.IGNORECASE):
-                head = f"{q.announce()} {head}".strip()
-            # Отделяем сам вопрос (до первого «?») от разбора.
-            qm = re.search(r"\?", head)
-            if qm:
-                q_part = head[:qm.end()].strip()
-                expl_part = head[qm.end():].strip()
-            else:
-                q_part, expl_part = head, ""
+                intro_text, answer_text = prose.strip(), ""
+            if not intro_text:
+                intro_text, answer_text = prose.strip(), ""
+            if not re.match(r"\s*Вопрос\b", intro_text, re.IGNORECASE):
+                intro_text = f"{q.announce()} {intro_text}".strip()
         else:
-            q_part = q.narration_intro(include_expl=False)   # «Вопрос N.» + вопрос
-            expl_part = q.explanation.strip() if read_expl else ""
-            answer_text = q.narration_answer()               # «Ответ. X»
+            intro_text = q.narration_intro(include_expl=read_expl)
+            answer_text = q.narration_answer()
 
         tail = round(before + pad, 3)   # тишина в конце (before + после зелёного)
-        gap_q_expl = 0.6 if expl_part else 0.0   # вдох между вопросом и разбором
-        gap_expl_ans = 0.45 if answer_text else 0.0  # вдох перед «Ответ»
-
+        mid = 0.0
         # 0) вопрос открылся -> тишина -> читаем.
         clips.append((str(silence), start_gap)); gaps.append(0.0)
-        # 1) сам вопрос.
-        a1 = await synth(q_part)
+        # 1) вопрос + разбор.
+        a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
         d1 = media_duration(str(p1)); clips.append((str(p1), d1))
-        # 2) разбор (пояснение) — после паузы.
+        # 2) «Ответ …» — тут зажигаем ЗЕЛЁНЫЙ.
         d2 = 0.0
-        if expl_part:
-            gaps.append(gap_q_expl)
-            a2 = await synth(expl_part)
+        if answer_text:
+            mid = 0.45
+            gaps.append(mid)
+            a2 = await synth(answer_text)
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
             d2 = media_duration(str(p2)); clips.append((str(p2), d2))
-        # 3) «Ответ …» — после паузы, тут зажигаем ЗЕЛЁНЫЙ.
-        d3 = 0.0
-        if answer_text:
-            gaps.append(gap_expl_ans)
-            a3 = await synth(answer_text)
-            p3 = tmp / f"q{q.number:02d}c.mp3"; p3.write_bytes(a3)
-            d3 = media_duration(str(p3)); clips.append((str(p3), d3))
         gaps.append(tail)
-        # Зелёный — ровно когда голос произносит «Ответ» (начало 3-го куска).
-        reveal_at = start_gap + d1 + gap_q_expl + d2 + gap_expl_ans
-        total_q = start_gap + d1 + gap_q_expl + d2 + gap_expl_ans + d3 + before + pad
-        schedule.append({"dur": round(total_q, 3), "revealAt": round(reveal_at, 3)})
+        reveal_at = start_gap + d1 + mid
+        schedule.append({"dur": round(start_gap + d1 + mid + d2 + before + pad, 3),
+                         "revealAt": round(reveal_at, 3)})
 
     total_dur = sum(s["dur"] for s in schedule)
     print(f"🎞 Общая длительность: {int(total_dur // 60)}:{int(total_dur % 60):02d} "
