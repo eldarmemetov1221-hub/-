@@ -188,10 +188,10 @@ class Question:
             parts.append(f"{i}. {opt.strip()}")
         return "  ".join(_close(p) for p in parts if p.strip())
 
-    def narration_answer(self, include_expl: bool = False) -> str:
-        """Вторая часть: «правильный ответ» (+ пояснение, только если явно
-        include_expl=True). По умолчанию пояснение НЕ читаем — билет короткий:
-        вопрос -> варианты -> «правильный ответ» -> зелёный -> дальше."""
+    def narration_answer(self, include_expl: bool = True) -> str:
+        """Вторая часть: «правильный ответ» + пояснение (твой разбор из файла).
+        Читаем, когда уже загорелся зелёный. include_expl=False — только сам
+        ответ, без разбора (для очень длинных пояснений с сайта)."""
         parts = []
         if 0 <= self.correct < len(self.options):
             parts.append(f"Правильный ответ: {self.options[self.correct].strip()}.")
@@ -811,7 +811,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
                 images_dir: Path | None = None, base_dir: Path | None = None,
                 speak_map: dict[int, str] | None = None, green_frac: float = 0.6,
                 before: float = 1.5, start_gap: float = 1.0, show_expl: bool = False,
-                read_expl: bool = False,
+                read_expl: bool = True,
                 chromium_path: str | None = None) -> dict:
     speak_map = speak_map or {}
     green_frac = min(1.0, max(0.0, green_frac))
@@ -953,9 +953,10 @@ def main() -> None:
                     help="пауза в НАЧАЛЕ вопроса (открылся → пауза → читает), сек")
     ap.add_argument("--show-expl", action="store_true",
                     help="показывать текст пояснения на экране (по умолчанию скрыт)")
-    ap.add_argument("--read-expl", action="store_true",
-                    help="читать пояснение ВСЛУХ (по умолчанию НЕ читается — билет короткий: "
-                         "вопрос → варианты → «правильный ответ» → зелёный → дальше)")
+    ap.add_argument("--no-expl", dest="read_expl", action="store_false",
+                    help="НЕ читать пояснение вслух (по умолчанию читается — это твой разбор "
+                         "из файла). Ставь, если пояснение слишком длинное, напр. с сайта")
+    ap.set_defaults(read_expl=True)
     ap.add_argument("--reveal", type=float, default=0.5, help="(не используется)")
     ap.add_argument("--green", type=float, default=0.6,
                     help="когда зажигать зелёный: доля пояснения (0=сразу после вопроса, "
