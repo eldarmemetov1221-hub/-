@@ -178,26 +178,23 @@ class Question:
         # Точки между блоками = аккуратные паузы «среднего» темпа.
         return "  ".join(_close(p) for p in parts if p.strip())
 
-    def narration_intro(self, announce: bool = True) -> str:
-        """Первая часть озвучки: «Вопрос первый» + вопрос + варианты (ДО зелёного)."""
+    def narration_intro(self, announce: bool = True, include_expl: bool = True) -> str:
+        """Первая часть озвучки (ДО зелёного): «Вопрос N» + сам вопрос + разбор
+        (пояснение). ВАРИАНТЫ ВСЛУХ НЕ ЧИТАЮТСЯ — они только на экране."""
         parts = []
         if announce:
             parts.append(self.announce())
         parts.append(self.text.strip())
-        for i, opt in enumerate(self.options, 1):
-            parts.append(f"{i}. {opt.strip()}")
-        return "  ".join(_close(p) for p in parts if p.strip())
-
-    def narration_answer(self, include_expl: bool = True) -> str:
-        """Вторая часть: «правильный ответ» + пояснение (твой разбор из файла).
-        Читаем, когда уже загорелся зелёный. include_expl=False — только сам
-        ответ, без разбора (для очень длинных пояснений с сайта)."""
-        parts = []
-        if 0 <= self.correct < len(self.options):
-            parts.append(f"Правильный ответ: {self.options[self.correct].strip()}.")
         if include_expl and self.explanation:
             parts.append(self.explanation.strip())
         return "  ".join(_close(p) for p in parts if p.strip())
+
+    def narration_answer(self, include_expl: bool = True) -> str:
+        """Вторая часть (когда загорелся зелёный): голос называет ответ словом
+        «Ответ …». Разбор уже прочитан в первой части, тут только сам ответ."""
+        if 0 <= self.correct < len(self.options):
+            return _close(f"Ответ. {self.options[self.correct].strip()}")
+        return ""
 
     def correct_text(self) -> str:
         return self.options[self.correct].strip() if 0 <= self.correct < len(self.options) else ""
@@ -885,7 +882,8 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             if not re.match(r"\s*Вопрос\b", intro_text, re.IGNORECASE):
                 intro_text = f"{q.announce()} {intro_text}".strip()
         else:
-            intro_text, answer_text = q.narration_intro(), q.narration_answer(include_expl=read_expl)
+            intro_text = q.narration_intro(include_expl=read_expl)
+            answer_text = q.narration_answer()
         tail = round(before + pad, 3)   # тишина в конце вопроса (before + после зелёного)
         mid = 0.0
         # 0) пауза в начале: вопрос открылся -> тишина start_gap -> потом читаем.
