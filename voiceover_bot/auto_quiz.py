@@ -449,17 +449,18 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
   .imgzone { margin: 8px 0 12px; }
-  /* ТОЧНО как в старых билетах 1-6: рамка 2.9:1 (высота до 34vh), картинка
-     внутри по центру (contain). Чтобы новые билеты совпадали со старыми. */
+  /* Рамка 2.9:1 всегда одного размера. Картинка ЗАПОЛНЯЕТ её целиком
+     (object-fit: cover) — без серых полей, края чуть подрезаются.
+     Это тот вид, что одобрен (скрин 3). */
   .imgbox {
-    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
+    width: 100%; aspect-ratio: 2.9 / 1;
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
+  .imgbox.noimg { aspect-ratio: 2.9 / 1; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: contain; display: none;
+    object-fit: cover; display: none;
   }
   .imgbox img.show { display: block; }
   .imgph {
