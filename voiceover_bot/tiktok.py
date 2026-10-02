@@ -403,11 +403,14 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y},'{d}')"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
     events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
-    # Зелёная полоска на правильном варианте — ровно когда начинается «Ответ…».
-    if green:
-        events.append((round(t_expl + ed, 3),
-                       f"window.__tt.showGreen({green[0]},{green[1]},{green[2]},{green[3]})"))
     total = qd + td_ + ed + ad
+    # Зелёная полоска — ПОСЛЕ того как голос договорил ответ (конец реплики),
+    # и держим её ещё пару секунд, чтобы зритель увидел.
+    if green:
+        green_hold = 1.8
+        events.append((round(total, 3),
+                       f"window.__tt.showGreen({green[0]},{green[1]},{green[2]},{green[3]})"))
+        total += green_hold
     print(f"🎞 Длительность: {int(total // 60)}:{int(total % 60):02d}")
 
     page = build_page(image_uri)
