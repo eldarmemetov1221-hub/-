@@ -80,10 +80,17 @@ def parse_narration(text: str):
     # чтобы голос его не читал. Загорится в момент «Ответ».
     green = None
     mg = re.search(
-        r"\{\s*зел[её]н(?:ый|ая)?\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\}",
+        r"\{\s*зел[её]н(?:ый|ая)?\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)"
+        r"(?:\s*,\s*([0-9.]+)\s*,\s*([0-9.]+))?\s*\}",
         block)
     if mg:
-        green = (float(mg.group(1)), float(mg.group(2)), float(mg.group(3)), float(mg.group(4)))
+        if mg.group(3) is not None:
+            # 4 цифры: x, y, ширина, высота (полный контроль).
+            green = (float(mg.group(1)), float(mg.group(2)),
+                     float(mg.group(3)), float(mg.group(4)))
+        else:
+            # 2 цифры: y (верх полоски) и высота — ширина на всю карточку.
+            green = (0.0, float(mg.group(1)), 1.0, float(mg.group(2)))
         block = (block[:mg.start()] + block[mg.end():]).strip()
 
     m_exp = re.search(r"Пояснени[ея]\s*:\s*", block)
