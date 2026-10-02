@@ -70,6 +70,34 @@ def make_ticks(seconds: int, out: str) -> None:
                capture_output=True, check=True)
 
 
+def detect_boxes(image_path):
+    """Сам находит боксы вариантов на карточке (светлые рамки на всю ширину).
+    Возвращает список (y_верх, y_низ) в долях картинки, сверху вниз."""
+    from PIL import Image
+    im = Image.open(image_path).convert("RGB"); W, H = im.size; px = im.load()
+    x0, x1 = int(W * 0.06), int(W * 0.94); n = max(1, (x1 - x0) // 3)
+    borders = []
+    for y in range(int(H * 0.45), H):
+        c = 0
+        for x in range(x0, x1, 3):
+            r, g, b = px[x, y]; lum = (r + g + b) // 3
+            if 195 < lum < 249:
+                c += 1
+        if c / n > 0.5:          # длинная горизонтальная линия-рамка
+            if borders and y - borders[-1] <= 6:
+                borders[-1] = y
+            else:
+                borders.append(y)
+    boxes = []; i = 0
+    while i + 1 < len(borders):
+        t, b = borders[i], borders[i + 1]; h = (b - t) / H
+        if 0.05 <= h <= 0.14:
+            boxes.append((round(t / H, 3), round(b / H, 3))); i += 2
+        else:
+            i += 1
+    return boxes
+
+
 def parse_narration(text: str):
     """(вопрос, пояснение_без_тегов, стрелки, ответ, зелёный).
     стрелки: список (char_start, char_end, x, y, dir) — позиции фразы в пояснении.
@@ -303,9 +331,22 @@ async def record(page_html, events, total_dur, out_dir, executable_path=None):
 # --------------------------------------------------------------------------- #
 
 async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
-                think_pause, chromium_path, grid=False):
+                think_pause, chromium_path, grid=False, correct=None):
     image_uri = _image_data_uri(Path(image_path))
     question_txt, expl_txt, spans, answer_txt, green = parse_narration(read_text_any(speak_txt))
+
+    # Автоматика: если дан номер правильного (--correct N) и нет ручного тега —
+    # сами находим боксы вариантов и красим нужный. Без координат и калибровки.
+    if green is None and correct:
+        boxes = detect_boxes(image_path)
+        if not boxes:
+            print("⚠️ Не нашёл боксы вариантов на картинке — поставь тег {зелёный:y,высота} вручную.")
+        elif 1 <= correct <= len(boxes):
+            t, b = boxes[correct - 1]
+            green = (0.03, round(t - 0.004, 3), 0.94, round(b - t + 0.008, 3))
+            print(f"🟩 Нашёл {len(boxes)} вариант(ов); зелёным будет №{correct} (y {t}-{b}).")
+        else:
+            print(f"⚠️ На картинке {len(boxes)} вариант(ов), а --correct {correct} — проверь номер.")
 
     # Режим калибровки: сохранить картинку с сеткой координат, стрелками и зелёной полоской.
     if grid:
@@ -393,6 +434,9 @@ def main():
     ap.add_argument("--rate", default="+0%")
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--think", type=float, default=5.0, help="пауза «зритель думает», сек")
+    ap.add_argument("--correct", type=int, default=None,
+                    help="номер правильного варианта (1,2,3…). Программа сама найдёт бокс "
+                         "этого варианта и зажжёт его зелёным в момент «Ответ» — без координат")
     ap.add_argument("--grid", action="store_true",
                     help="калибровка: сохранить PNG с сеткой координат и текущими стрелками "
                          "(output укажи как .png), видео не собирать")
@@ -401,6 +445,7 @@ def main():
     asyncio.run(build(
         args.image, args.output, args.speak, args.voice, args.engine,
         args.rate, args.pitch, args.think, args.chromium_path, grid=args.grid,
+        correct=args.correct,
     ))
 
 
