@@ -71,9 +71,21 @@ def make_ticks(seconds: int, out: str) -> None:
 
 
 def parse_narration(text: str):
-    """(вопрос, пояснение_без_тегов, стрелки, ответ).
-    стрелки: список (char_start, char_end, x, y) — позиции фразы в пояснении."""
+    """(вопрос, пояснение_без_тегов, стрелки, ответ, зелёный).
+    стрелки: список (char_start, char_end, x, y, dir) — позиции фразы в пояснении.
+    зелёный: (x, y, ш, в) — прямоугольник правильного варианта (доли картинки) или None."""
     block = text.strip()
+
+    # Тег зелёной полоски {зелёный:x,y,ш,в} — может стоять где угодно; вырезаем,
+    # чтобы голос его не читал. Загорится в момент «Ответ».
+    green = None
+    mg = re.search(
+        r"\{\s*зел[её]н(?:ый|ая)?\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\}",
+        block)
+    if mg:
+        green = (float(mg.group(1)), float(mg.group(2)), float(mg.group(3)), float(mg.group(4)))
+        block = (block[:mg.start()] + block[mg.end():]).strip()
+
     m_exp = re.search(r"Пояснени[ея]\s*:\s*", block)
     m_ans = re.search(r"Ответ\s*:\s*", block)
     if not m_exp or not m_ans:
@@ -96,7 +108,7 @@ def parse_narration(text: str):
         spans.append((cs, ce, float(mo.group(1)), float(mo.group(2)), (mo.group(3) or "").lower()))
         pos = mo.end()
     plain += expl[pos:]
-    return question, plain, spans, answer
+    return question, plain, spans, answer, green
 
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +133,12 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
            transition: opacity .16s ease-out, transform .16s ease-out; }
   .arrow.show { opacity:1; transform: rotate(var(--r)) scale(1); }
   .arrow svg { width:100%; height:100%; filter: drop-shadow(0 3px 7px rgba(0,0,0,.55)); }
+  .green { position:absolute; opacity:0; border-radius:14px;
+           background:rgba(52,199,89,.42); border:6px solid #2fbf57;
+           box-shadow:0 0 0 3px rgba(255,255,255,.3) inset, 0 8px 26px rgba(0,0,0,.35);
+           transition: opacity .16s ease-out, transform .16s ease-out;
+           transform: scale(.96); }
+  .green.show { opacity:1; transform: scale(1); }
   .timer { position:fixed; top:50%; left:50%; z-index:30;
            width:340px; height:340px; border-radius:50%;
            background:rgba(15,17,22,.72); border:12px solid #fff;
@@ -144,6 +162,7 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   <div class="bg" id="bg"></div>
   <div class="wrap">
     <img id="img" alt="">
+    <div class="green" id="green"></div>
     <div class="arrows" id="arrows"></div>
     <div class="grid" id="grid"></div>
   </div>
@@ -170,6 +189,11 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   }
   function clearArrows(){ arrowsEl.querySelectorAll(".arrow").forEach(a=>{
     a.classList.remove("show"); setTimeout(()=>a.remove(),200); }); }
+  function showGreen(x,y,w,h){ const g=document.getElementById("green");
+    g.style.left=(x*100)+"%"; g.style.top=(y*100)+"%";
+    g.style.width=(w*100)+"%"; g.style.height=(h*100)+"%";
+    g.classList.add("show"); }
+  function hideGreen(){ const g=document.getElementById("green"); if(g) g.classList.remove("show"); }
   function countdown(sec){
     const el = document.getElementById("timer");
     let n = Math.round(sec); el.textContent = n;
@@ -194,14 +218,15 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     }
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
+    if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
-  window.__tt = { ready:true, showArrow, clearArrows, countdown };
+  window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen };
 </script>
 </body></html>"""
 
 
-def build_page(image_uri, grid=False, arrows=None):
-    data = {"image": image_uri, "grid": grid, "arrows": arrows or []}
+def build_page(image_uri, grid=False, arrows=None, green=None):
+    data = {"image": image_uri, "grid": grid, "arrows": arrows or [], "green": green}
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     return _PAGE.replace("__DATA__", payload)
 
@@ -273,12 +298,12 @@ async def record(page_html, events, total_dur, out_dir, executable_path=None):
 async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
                 think_pause, chromium_path, grid=False):
     image_uri = _image_data_uri(Path(image_path))
-    question_txt, expl_txt, spans, answer_txt = parse_narration(read_text_any(speak_txt))
+    question_txt, expl_txt, spans, answer_txt, green = parse_narration(read_text_any(speak_txt))
 
-    # Режим калибровки: сохранить картинку с сеткой координат и текущими стрелками.
+    # Режим калибровки: сохранить картинку с сеткой координат, стрелками и зелёной полоской.
     if grid:
         arrows = [(x, y, d) for _, _, x, y, d in spans]
-        page = build_page(image_uri, grid=True, arrows=arrows)
+        page = build_page(image_uri, grid=True, arrows=arrows, green=list(green) if green else None)
         await screenshot_page(page, out, executable_path=chromium_path)
         print(f"🧭 Сетка координат готова: {out}")
         print("   Красные стрелки — где сейчас стоят твои координаты. Подгони цифры "
@@ -330,6 +355,10 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y},'{d}')"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
     events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
+    # Зелёная полоска на правильном варианте — ровно когда начинается «Ответ…».
+    if green:
+        events.append((round(t_expl + ed, 3),
+                       f"window.__tt.showGreen({green[0]},{green[1]},{green[2]},{green[3]})"))
     total = qd + td_ + ed + ad
     print(f"🎞 Длительность: {int(total // 60)}:{int(total % 60):02d}")
 
