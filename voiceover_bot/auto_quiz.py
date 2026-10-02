@@ -449,17 +449,18 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
   .imgzone { margin: 8px 0 12px; }
-  /* Рамка ОДНОГО РАЗМЕРА всегда (2.9:1, высота 34vh) — и где картинка есть,
-     и где нет (как в билете 6). Картинка лежит ВНУТРИ по центру (contain). */
+  /* Рамка ОДНОГО РАЗМЕРА всегда (2.9:1). Картинка ЗАПОЛНЯЕТ её целиком
+     (object-fit: cover) — без серых полей, рамка не прыгает. Лишние края
+     картинки чуть подрезаются, чтобы она села ровно в рамку. */
   .imgbox {
-    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
+    width: 100%; aspect-ratio: 2.9 / 1;
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
+  .imgbox.noimg { aspect-ratio: 2.9 / 1; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: contain; display: none;
+    object-fit: cover; display: none;
   }
   .imgbox img.show { display: block; }
   .imgph {
