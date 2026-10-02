@@ -426,8 +426,10 @@ _PAGE_TEMPLATE = r"""<!doctype html>
   }
   .card {
     width: min(1500px, 95vw); background: #fff; border-radius: 20px;
-    box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 12px 40px 16px;
+    box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 18px 40px 20px;
     margin: 4px 0; position: relative;
+    min-height: 93vh;
+    display: flex; flex-direction: column; justify-content: center;
   }
   .numstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
   .num {
