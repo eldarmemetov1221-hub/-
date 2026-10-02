@@ -428,7 +428,7 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     width: min(1500px, 95vw); background: #fff; border-radius: 20px;
     box-shadow: 0 14px 44px rgba(20,40,80,.14); padding: 18px 40px 20px;
     margin: 4px 0; position: relative;
-    min-height: 93vh;
+    height: 96vh; max-height: 96vh; overflow: hidden;
     display: flex; flex-direction: column; justify-content: center;
   }
   .numstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
@@ -450,15 +450,19 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     display: flex; align-items: center; justify-content: center;
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
-  .imgzone { margin: 8px 0 12px; }
-  /* «Чёткое» состояние (коммит 5213947): рамка 2.72:1, высота до 44vh,
-     картинка внутри по центру (contain). Карточка центрирована по вертикали. */
+  /* imgzone — резиновая: забирает свободную высоту, но ужимается, когда
+     вопрос длинный и вариантов много (чтобы всё влезало, как билет 7 в.1). */
+  .imgzone { margin: 8px 0 12px; flex: 1 1 auto; min-height: 0;
+             display: flex; align-items: center; justify-content: center; }
+  /* Рамка 2.72:1 (до 44vh), но не больше доступной высоты imgzone.
+     Картинка внутри по центру (contain). */
   .imgbox {
-    width: 100%; aspect-ratio: 2.72 / 1; max-height: 44vh;
+    width: 100%; aspect-ratio: 2.72 / 1; max-height: min(44vh, 100%);
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  .imgbox.noimg { aspect-ratio: 2.72 / 1; height: auto; max-height: 44vh; }
+  .imgbox.noimg { aspect-ratio: 2.72 / 1; height: auto; max-height: min(44vh, 100%); }
+  .numstrip, .top, .question, .options, .explain { flex: 0 0 auto; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; display: none;
