@@ -455,8 +455,9 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  /* Нет картинки — плашку вообще не показываем, вопрос поднимается вверх. */
-  .imgbox.noimg { display: none; }
+  /* Нет картинки — заглушка ТАКАЯ ЖЕ большая, как рамка под картинку,
+     чтобы карточка не прыгала между вопросами (как в билете 6). */
+  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; display: none;
