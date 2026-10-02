@@ -455,8 +455,8 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  /* Нет картинки — тонкая полоса, чтобы не занимать пол-экрана. */
-  .imgbox.noimg { aspect-ratio: auto; height: 60px; max-height: 60px; }
+  /* Нет картинки — плашку вообще не показываем, вопрос поднимается вверх. */
+  .imgbox.noimg { display: none; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; display: none;
