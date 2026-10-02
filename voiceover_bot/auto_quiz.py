@@ -448,23 +448,18 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     display: flex; align-items: center; justify-content: center;
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
-  .imgzone { margin: 8px 0 12px; text-align: center; }
-  /* Рамка под КАРТИНКУ — фиксированная ВЫСОТА, ширина по картинке: любое фото
-     (широкое/квадратное) показывается крупно, без серых полей по бокам. */
+  .imgzone { margin: 8px 0 12px; }
+  /* Один прямоугольник 2.9:1 на всю ширину — и для картинки, и для заглушки
+     (именно так сделан билет 8). Все билеты одинаковые. */
   .imgbox {
-    display: inline-block; height: 34vh; max-width: 100%;
-    border-radius: 10px; overflow: hidden; position: relative;
-    margin: 0 auto; vertical-align: top;
+    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
+    border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
+    margin: 0 auto;
   }
-  /* Нет картинки — большая заглушка на всю ширину той же высоты,
-     чтобы карточка не прыгала между вопросами. */
-  .imgbox.noimg {
-    display: block; width: 100%; height: 34vh;
-    background: #eef1f4;
-  }
+  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
   .imgbox img {
-    height: 100%; width: auto; max-width: 100%;
-    object-fit: contain; display: none; border-radius: 10px;
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; display: none;
   }
   .imgbox img.show { display: block; }
   .imgph {
