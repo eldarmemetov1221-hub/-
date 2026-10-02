@@ -449,18 +449,17 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
   .imgzone { margin: 8px 0 12px; }
-  /* Картинка РАСТЯГИВАЕТСЯ на всю ширину карточки, без серых полей и без
-     обрезки (высота по картинке). Все картинки — край в край. */
+  /* Рамка ОДНОГО РАЗМЕРА всегда (2.9:1, высота 34vh) — и где картинка есть,
+     и где нет (как в билете 6). Картинка лежит ВНУТРИ по центру (contain). */
   .imgbox {
-    width: 100%; border-radius: 10px; overflow: hidden;
-    position: relative; margin: 0 auto;
+    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
+    border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
+    margin: 0 auto;
   }
-  /* Нет картинки — большая серая заглушка 2.9:1. */
-  .imgbox.noimg {
-    aspect-ratio: 2.9 / 1; max-height: 34vh; background: #eef1f4;
-  }
+  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
   .imgbox img {
-    display: none; width: 100%; height: auto;
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; display: none;
   }
   .imgbox img.show { display: block; }
   .imgph {
