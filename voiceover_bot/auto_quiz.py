@@ -448,19 +448,23 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     display: flex; align-items: center; justify-content: center;
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
-  .imgzone { margin: 8px 0 12px; }
-  /* Один и тот же прямоугольник для КАРТИНКИ и для заглушки — одинаковый размер. */
+  .imgzone { margin: 8px 0 12px; text-align: center; }
+  /* Рамка под КАРТИНКУ — фиксированная ВЫСОТА, ширина по картинке: любое фото
+     (широкое/квадратное) показывается крупно, без серых полей по бокам. */
   .imgbox {
-    width: 100%; aspect-ratio: 2.9 / 1; max-height: 34vh;
-    border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
-    margin: 0 auto;
+    display: inline-block; height: 34vh; max-width: 100%;
+    border-radius: 10px; overflow: hidden; position: relative;
+    margin: 0 auto; vertical-align: top;
   }
-  /* Нет картинки — заглушка ТАКАЯ ЖЕ большая, как рамка под картинку,
-     чтобы карточка не прыгала между вопросами (как в билете 6). */
-  .imgbox.noimg { aspect-ratio: 2.9 / 1; height: auto; max-height: 34vh; }
+  /* Нет картинки — большая заглушка на всю ширину той же высоты,
+     чтобы карточка не прыгала между вопросами. */
+  .imgbox.noimg {
+    display: block; width: 100%; height: 34vh;
+    background: #eef1f4;
+  }
   .imgbox img {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: contain; display: none;
+    height: 100%; width: auto; max-width: 100%;
+    object-fit: contain; display: none; border-radius: 10px;
   }
   .imgbox img.show { display: block; }
   .imgph {
