@@ -449,18 +449,17 @@ _PAGE_TEMPLATE = r"""<!doctype html>
     font-size: 22px; font-weight: 700; color: #e2574c;
   }
   .imgzone { margin: 8px 0 12px; }
-  /* Рамка 2.9:1 всегда одного размера. Картинка ЗАПОЛНЯЕТ её целиком
-     (object-fit: cover) — без серых полей, края чуть подрезаются.
-     Это тот вид, что одобрен (скрин 3). */
+  /* «Чёткое» состояние (коммит 5213947): рамка 2.72:1, высота до 44vh,
+     картинка внутри по центру (contain). Карточка центрирована по вертикали. */
   .imgbox {
-    width: 100%; aspect-ratio: 2.9 / 1;
+    width: 100%; aspect-ratio: 2.72 / 1; max-height: 44vh;
     border-radius: 10px; overflow: hidden; position: relative; background: #eef1f4;
     margin: 0 auto;
   }
-  .imgbox.noimg { aspect-ratio: 2.9 / 1; }
+  .imgbox.noimg { aspect-ratio: 2.72 / 1; height: auto; max-height: 44vh; }
   .imgbox img {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: cover; display: none;
+    object-fit: contain; display: none;
   }
   .imgbox img.show { display: block; }
   .imgph {
