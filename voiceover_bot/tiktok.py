@@ -360,11 +360,15 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     _w.style.opacity = "1"; _w.style.transform = "none";
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
-    // Пометки рисуем ТОЛЬКО после загрузки картинки (иначе их размер нулевой).
+    // Пометки рисуем, ТОЛЬКО когда у картинки появилась реальная ширина
+    // (иначе размер пометок нулевой и их не видно). Опрашиваем до ~1.5 сек.
     const drawMarks = () => (D.marks||[]).forEach(m=>{
       if(m[3]==='underline') showUnderline(m[0],m[1],m[2]); else showCircle(m[0],m[1],m[2]); });
-    if (img.complete && img.clientWidth) drawMarks();
-    else img.addEventListener("load", () => setTimeout(drawMarks, 30));
+    const tryDrawMarks = (n) => {
+      if (img.clientWidth) { drawMarks(); return; }
+      if (n > 0) requestAnimationFrame(() => tryDrawMarks(n - 1));
+    };
+    tryDrawMarks(90);
     if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
   window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen,
@@ -394,7 +398,7 @@ async def screenshot_page(page_html, out_png, executable_path=None):
         page = await browser.new_page(viewport={"width": 1080, "height": 1920})
         await page.goto(page_uri)
         await page.wait_for_function("window.__tt && window.__tt.ready")
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1.1)
         await page.screenshot(path=out_png)
         await browser.close()
 
