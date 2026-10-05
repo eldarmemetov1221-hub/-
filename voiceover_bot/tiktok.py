@@ -99,6 +99,17 @@ def detect_boxes(image_path):
     return boxes
 
 
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF"
+    "\U00002B00-\U00002BFF\U00002190-\U000021FF️⃣]+")
+
+
+def _speakable(text: str) -> str:
+    """Убирает эмодзи и прочие непроизносимые значки — чтобы Яндекс не менял
+    интонацию/тембр, встречая их. На экране текст остаётся с эмодзи."""
+    return re.sub(r"\s{2,}", " ", _EMOJI_RE.sub("", text)).strip()
+
+
 def parse_narration(text: str):
     """(вопрос, пояснение_без_тегов, стрелки, ответ, зелёный).
     стрелки: список (char_start, char_end, x, y, dir) — позиции фразы в пояснении.
@@ -570,7 +581,7 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     print("⏳ Озвучиваю…")
 
     async def voice_to(text, name):
-        data = await synth(text)
+        data = await synth(_speakable(text))   # без эмодзи — чтобы голос не «спотыкался»
         p = tmp / name
         p.write_bytes(data)
         return str(p), media_duration(str(p))
