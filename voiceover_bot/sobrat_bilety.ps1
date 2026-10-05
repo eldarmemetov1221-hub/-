@@ -69,7 +69,7 @@ if ($Razbor -ne "") {
 $done = 0; $skip = 0
 for ($n = $From; $n -le $To; $n++) {
     $bilet = Find-Bilet $n
-    if (-not $bilet) { Write-Host "-- bilet $n: file not found in $Dir, skip" -ForegroundColor DarkGray; continue }
+    if (-not $bilet) { Write-Host "-- bilet ${n}: file not found in $Dir, skip" -ForegroundColor DarkGray; continue }
 
     $cmdArgs = @($bilet, (Join-Path $out "$W_bilet$n.mp4"))
 
