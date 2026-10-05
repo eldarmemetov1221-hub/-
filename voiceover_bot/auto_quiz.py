@@ -72,11 +72,13 @@ def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
     import urllib.parse
 
     speed = (os.environ.get("YANDEX_SPEED") or "0.9").strip()
+    # Эмоция: neutral / good (радостный, живее) / evil. Через env YANDEX_EMOTION.
+    emotion = (os.environ.get("YANDEX_EMOTION") or "neutral").strip()
     body = urllib.parse.urlencode({
         "text": text,
         "lang": "ru-RU",
         "voice": voice,
-        "emotion": "neutral",
+        "emotion": emotion,
         "speed": speed,
         "format": "oggopus",
         "folderId": folder_id,
