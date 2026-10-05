@@ -355,7 +355,9 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
       const ll=document.createElement("div"); ll.className="glab"; ll.textContent=f.toFixed(1);
       lt.style.transform="translateX(-50%)"; ll.style.left="2px"; ll.style.top=(f*100)+"%"; g.appendChild(ll);
     }
-    document.getElementById("wrap").classList.add("enter");
+    // Сетка: карточка видна СРАЗУ, без анимации влёта (иначе кадр смазан).
+    const _w = document.getElementById("wrap");
+    _w.style.opacity = "1"; _w.style.transform = "none";
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
     (D.marks||[]).forEach(m=>{ if(m[3]==='underline') showUnderline(m[0],m[1],m[2]);
@@ -389,7 +391,7 @@ async def screenshot_page(page_html, out_png, executable_path=None):
         page = await browser.new_page(viewport={"width": 1080, "height": 1920})
         await page.goto(page_uri)
         await page.wait_for_function("window.__tt && window.__tt.ready")
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.8)
         await page.screenshot(path=out_png)
         await browser.close()
 
