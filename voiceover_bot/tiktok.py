@@ -175,6 +175,38 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
            transition: opacity .16s ease-out, transform .16s ease-out;
            transform: scale(.96); }
   .green.show { opacity:1; transform: scale(1); }
+  /* Галочка ✅ рядом с зелёным — выпрыгивает. */
+  .check { position:absolute; z-index:25; font-size:120px; opacity:0;
+           margin-left:-60px; margin-top:-70px;
+           transform: scale(.2) rotate(-25deg);
+           filter: drop-shadow(0 6px 16px rgba(0,0,0,.5)); }
+  .check.show { animation: pop .5s cubic-bezier(.2,1.5,.4,1) forwards; }
+  @keyframes pop { 0%{opacity:0;transform:scale(.2) rotate(-25deg);}
+                   60%{opacity:1;transform:scale(1.25) rotate(8deg);}
+                   100%{opacity:1;transform:scale(1) rotate(0);} }
+  /* Лёгкий зум фона (как у блогеров). */
+  .bg { animation: kb 14s ease-in-out infinite alternate; }
+  @keyframes kb { from{transform:scale(1);} to{transform:scale(1.12);} }
+  /* Карточка влетает с зумом. */
+  .wrap { opacity:0; transform: scale(.88) translateY(40px); }
+  .wrap.enter { animation: cardin .5s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes cardin { to{opacity:1; transform: scale(1) translateY(0);} }
+  /* Интро-хук — экран-интрига в начале. */
+  .hook { position:fixed; inset:0; z-index:60; display:flex;
+          align-items:center; justify-content:center; padding:0 70px;
+          background: radial-gradient(120% 80% at 50% 40%, #1c2a4d 0%, #090d18 100%);
+          opacity:0; pointer-events:none; }
+  .hook.show { opacity:1; }
+  .hook .htext { color:#fff; font:900 92px/1.15 -apple-system,Arial,sans-serif;
+                 text-align:center; text-shadow:0 6px 30px rgba(0,0,0,.6);
+                 transform: scale(.7); opacity:0; }
+  .hook.show .htext { animation: hin .45s cubic-bezier(.2,1.4,.4,1) .05s forwards,
+                                 shake 1.8s ease-in-out .5s infinite; }
+  @keyframes hin { to{transform:scale(1); opacity:1;} }
+  @keyframes shake { 0%,100%{rotate:0deg;} 25%{rotate:-1.5deg;} 75%{rotate:1.5deg;} }
+  .hook .hbadge { position:absolute; top:16%; left:50%; transform:translateX(-50%);
+                  background:#ff3b30; color:#fff; font:800 40px Arial; padding:12px 30px;
+                  border-radius:40px; letter-spacing:1px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
   .timer { position:fixed; top:50%; left:50%; z-index:30;
            width:340px; height:340px; border-radius:50%;
            background:rgba(15,17,22,.72); border:12px solid #fff;
@@ -196,13 +228,18 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 </style></head>
 <body>
   <div class="bg" id="bg"></div>
-  <div class="wrap">
+  <div class="wrap" id="wrap">
     <img id="img" alt="">
     <div class="green" id="green"></div>
+    <div class="check" id="check">✅</div>
     <div class="arrows" id="arrows"></div>
     <div class="grid" id="grid"></div>
   </div>
   <div class="timer" id="timer">5</div>
+  <div class="hook" id="hook">
+    <div class="hbadge">⚠️ ТЕСТ ПДД</div>
+    <div class="htext" id="htext"></div>
+  </div>
 <script id="payload" type="application/json">__DATA__</script>
 <script>
   const D = JSON.parse(document.getElementById("payload").textContent);
@@ -228,8 +265,16 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   function showGreen(x,y,w,h){ const g=document.getElementById("green");
     g.style.left=(x*100)+"%"; g.style.top=(y*100)+"%";
     g.style.width=(w*100)+"%"; g.style.height=(h*100)+"%";
-    g.classList.add("show"); }
+    g.classList.add("show");
+    // галочка ✅ у правого края зелёной полоски — выпрыгивает
+    const c=document.getElementById("check");
+    c.style.left=((x+w)*100)+"%"; c.style.top=((y+h/2)*100)+"%";
+    c.classList.remove("show"); void c.offsetWidth; c.classList.add("show"); }
   function hideGreen(){ const g=document.getElementById("green"); if(g) g.classList.remove("show"); }
+  function enterCard(){ document.getElementById("wrap").classList.add("enter"); }
+  function showHook(text){ document.getElementById("htext").textContent=text||"";
+    document.getElementById("hook").classList.add("show"); }
+  function hideHook(){ document.getElementById("hook").classList.remove("show"); }
   function countdown(sec){
     const el = document.getElementById("timer");
     let n = Math.round(sec); el.textContent = n;
@@ -252,11 +297,13 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
       const ll=document.createElement("div"); ll.className="glab"; ll.textContent=f.toFixed(1);
       lt.style.transform="translateX(-50%)"; ll.style.left="2px"; ll.style.top=(f*100)+"%"; g.appendChild(ll);
     }
+    document.getElementById("wrap").classList.add("enter");
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
     if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
-  window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen };
+  window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen,
+                  enterCard, showHook, hideHook };
 </script>
 </body></html>"""
 
@@ -332,9 +379,22 @@ async def record(page_html, events, total_dur, out_dir, executable_path=None):
 # --------------------------------------------------------------------------- #
 
 async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
-                think_pause, chromium_path, grid=False, correct=None, role="good"):
+                think_pause, chromium_path, grid=False, correct=None, role="good",
+                hook="", no_hook=False):
     image_uri = _image_data_uri(Path(image_path))
-    question_txt, expl_txt, spans, answer_txt, green = parse_narration(read_text_any(speak_txt))
+    raw = read_text_any(speak_txt)
+    # Интро-хук: строка «Хук: …» в тексте, либо --hook, либо дефолт.
+    hook_text = hook or ""
+    mh = re.search(r"(?mi)^\s*Хук\s*:\s*(.+)$", raw)
+    if mh:
+        if not hook_text:
+            hook_text = mh.group(1).strip()
+        raw = raw[:mh.start()] + raw[mh.end():]
+    if not hook_text:
+        hook_text = "А ты знаешь ответ? У тебя пять секунд!"
+    if no_hook:
+        hook_text = ""
+    question_txt, expl_txt, spans, answer_txt, green = parse_narration(raw)
 
     # Автоматика: если дан номер правильного (--correct N) и нет ручного тега —
     # сами находим боксы вариантов и красим нужный. Без координат и калибровки.
@@ -385,7 +445,7 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         async def base_synth(t):
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, cache_rate, pitch, 3)
+    synth = make_cached_synth(base_synth, engine, voice, cache_rate, pitch, 4)
     tmp = Path(tempfile.mkdtemp(prefix="tiktok_"))
     print("⏳ Озвучиваю…")
 
@@ -397,6 +457,18 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
 
     tp = max(1, int(round(think_pause)))
     clips, gaps, events = [], [], []
+
+    # 0) ИНТРО-ХУК: голос-интрига + экран-интрига, потом карточка влетает.
+    t0 = 0.0
+    if hook_text:
+        hp, hd = await voice_to(hook_text, "hook.mp3")
+        clips.append((hp, hd)); gaps.append(0.25)   # маленькая пауза после хука
+        events.append((0.0, f"window.__tt.showHook({json.dumps(hook_text)})"))
+        events.append((round(hd, 3), "window.__tt.hideHook(); window.__tt.enterCard()"))
+        t0 = hd + 0.25
+    else:
+        events.append((0.0, "window.__tt.enterCard()"))
+
     qp, qd = await voice_to(question_txt, "q.mp3")
     clips.append((qp, qd)); gaps.append(0.0)
     ticks_path = str(tmp / "ticks.wav")
@@ -408,15 +480,15 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     ap, ad = await voice_to("Ответ. " + answer_txt, "a.mp3")
     clips.append((ap, ad)); gaps.append(0.0)
 
-    events.append((0.0, "window.__tt.clearArrows()"))
-    events.append((round(qd, 3), f"window.__tt.countdown({tp})"))
-    t_expl = qd + td_
+    events.append((round(t0, 3), "window.__tt.clearArrows()"))
+    events.append((round(t0 + qd, 3), f"window.__tt.countdown({tp})"))
+    t_expl = t0 + qd + td_
     L = max(1, len(expl_txt))
     for cs, ce, x, y, d in spans:
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y},'{d}')"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
     events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
-    total = qd + td_ + ed + ad
+    total = t0 + qd + td_ + ed + ad
     # Зелёная полоска — ПОСЛЕ того как голос договорил ответ (конец реплики),
     # и держим её ещё пару секунд, чтобы зритель увидел.
     if green:
@@ -461,12 +533,17 @@ def main():
     ap.add_argument("--grid", action="store_true",
                     help="калибровка: сохранить PNG с сеткой координат и текущими стрелками "
                          "(output укажи как .png), видео не собирать")
+    ap.add_argument("--hook", default="",
+                    help="текст интро-интриги в начале (голос + анимация). Можно задать и "
+                         "строкой «Хук: …» в файле. По умолчанию — свой текст.")
+    ap.add_argument("--no-hook", dest="no_hook", action="store_true",
+                    help="без интро-хука (сразу карточка)")
     ap.add_argument("--chromium-path", default=None)
     args = ap.parse_args()
     asyncio.run(build(
         args.image, args.output, args.speak, args.voice, args.engine,
         args.rate, args.pitch, args.think, args.chromium_path, grid=args.grid,
-        correct=args.correct, role=args.role,
+        correct=args.correct, role=args.role, hook=args.hook, no_hook=args.no_hook,
     ))
 
 
