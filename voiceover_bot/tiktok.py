@@ -246,6 +246,20 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
            text-shadow:0 6px 30px rgba(0,0,0,.6); opacity:0; transform:scale(.8); }
   .hook.show .htext { animation: htin .45s cubic-bezier(.2,1.4,.4,1) .25s forwards; }
   @keyframes htin { to{opacity:1; transform:scale(1);} }
+  /* Плашка-интрига ПОВЕРХ карточки в начале (вместо отдельного экрана). */
+  .caption { position:fixed; top:5%; left:50%; z-index:45;
+             transform:translateX(-50%) translateY(-24px); opacity:0;
+             width:min(920px,92%); text-align:center;
+             background:rgba(10,14,22,.85); border:4px solid #ffcf2b;
+             border-radius:28px; padding:24px 34px;
+             box-shadow:0 16px 44px rgba(0,0,0,.55); }
+  .caption.show { animation: capin .45s cubic-bezier(.2,1.4,.4,1) forwards; }
+  @keyframes capin { to{opacity:1; transform:translateX(-50%) translateY(0);} }
+  .caption .cbadge { display:inline-block; background:#ff3b30; color:#fff;
+             font:800 30px Arial; padding:7px 20px; border-radius:30px;
+             letter-spacing:1px; margin-bottom:14px; }
+  .caption .ctext { color:#fff; font:900 58px/1.15 Arial;
+             text-shadow:0 3px 14px rgba(0,0,0,.65); }
   .timer { position:fixed; top:50%; left:50%; z-index:30;
            width:340px; height:340px; border-radius:50%;
            background:rgba(15,17,22,.72); border:12px solid #fff;
@@ -291,6 +305,10 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
       <div class="htext" id="htext"></div>
     </div>
     <div class="hstripe hbot"></div>
+  </div>
+  <div class="caption" id="caption">
+    <div class="cbadge">⚠️ ТЕСТ ПДД</div>
+    <div class="ctext" id="ctext"></div>
   </div>
 <script id="payload" type="application/json">__DATA__</script>
 <script>
@@ -358,6 +376,10 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   function showHook(text){ document.getElementById("htext").textContent=text||"";
     document.getElementById("hook").classList.add("show"); }
   function hideHook(){ document.getElementById("hook").classList.remove("show"); }
+  function showCaption(text){ document.getElementById("ctext").textContent=text||"";
+    document.getElementById("caption").classList.add("show"); }
+  function hideCaption(){ const c=document.getElementById("caption");
+    c.classList.remove("show"); c.style.opacity="0"; }
   function countdown(sec){
     const el = document.getElementById("timer");
     let n = Math.round(sec); el.textContent = n;
@@ -397,7 +419,8 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
   window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen,
-                  enterCard, showHook, hideHook, showCircle, showUnderline, clearMarks };
+                  enterCard, showHook, hideHook, showCaption, hideCaption,
+                  showCircle, showUnderline, clearMarks };
 </script>
 </body></html>"""
 
@@ -555,16 +578,15 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     tp = max(1, int(round(think_pause)))
     clips, gaps, events = [], [], []
 
-    # 0) ИНТРО-ХУК: голос-интрига + экран-интрига, потом карточка влетает.
+    # 0) Карточка видна С НАЧАЛА; поверх в начале — плашка-интрига + голос.
     t0 = 0.0
+    events.append((0.0, "window.__tt.enterCard()"))
     if hook_text:
         hp, hd = await voice_to(hook_text, "hook.mp3")
         clips.append((hp, hd)); gaps.append(0.25)   # маленькая пауза после хука
-        events.append((0.0, f"window.__tt.showHook({json.dumps(hook_text)})"))
-        events.append((round(hd, 3), "window.__tt.hideHook(); window.__tt.enterCard()"))
+        events.append((0.0, f"window.__tt.showCaption({json.dumps(hook_text)})"))
+        events.append((round(hd, 3), "window.__tt.hideCaption()"))
         t0 = hd + 0.25
-    else:
-        events.append((0.0, "window.__tt.enterCard()"))
 
     qp, qd = await voice_to(question_txt, "q.mp3")
     clips.append((qp, qd)); gaps.append(0.0)
