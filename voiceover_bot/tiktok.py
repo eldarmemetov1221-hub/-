@@ -130,21 +130,36 @@ def parse_narration(text: str):
     expl = block[m_exp.end():m_ans.start()].strip()
     answer = block[m_ans.end():].strip()
 
+    # Теги пометок в пояснении (появляются в такт голосу):
+    #   {стрелка:x,y[,dir]}текст{/}          — красная стрелка
+    #   {обвести:x,y[,r]}текст{/}            — обводка маркером (как от руки)
+    #   {подчеркнуть:x,y[,ш]}текст{/}        — подчёркивание маркером
+    tag_re = re.compile(
+        r"\{\s*(стрелка|обвести|круг|подчеркнуть|линия)\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)"
+        r"\s*(?:,\s*([0-9.a-zA-Zа-яА-Я]{1,4}))?\s*\}(.*?)\{\s*/\s*\}", re.S)
     plain = ""
-    spans = []   # (char_start, char_end, x, y, dir|"")
+    spans = []    # стрелки: (cs, ce, x, y, dir)
+    marks = []    # пометки: (cs, ce, x, y, size, kind)  kind: circle/underline
     pos = 0
-    for mo in re.finditer(
-            r"\{\s*стрелка\s*:\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([a-zA-Zа-яА-Я]{1,2}))?\s*\}(.*?)\{\s*/\s*\}",
-            expl, re.S):
+    for mo in tag_re.finditer(expl):
         plain += expl[pos:mo.start()]
-        phrase = mo.group(4)
-        cs = len(plain)
-        plain += phrase
-        ce = len(plain)
-        spans.append((cs, ce, float(mo.group(1)), float(mo.group(2)), (mo.group(3) or "").lower()))
+        kind = mo.group(1).lower()
+        x, y = float(mo.group(2)), float(mo.group(3))
+        extra = (mo.group(4) or "").strip()
+        phrase = mo.group(5)
+        cs = len(plain); plain += phrase; ce = len(plain)
+        if kind == "стрелка":
+            spans.append((cs, ce, x, y, extra.lower()))
+        else:
+            try:
+                size = float(extra) if extra else 0.0
+            except ValueError:
+                size = 0.0
+            mk = "underline" if kind in ("подчеркнуть", "линия") else "circle"
+            marks.append((cs, ce, x, y, size, mk))
         pos = mo.end()
     plain += expl[pos:]
-    return question, plain, spans, answer, green
+    return question, plain, spans, answer, green, marks
 
 
 # --------------------------------------------------------------------------- #
@@ -169,6 +184,17 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
            transition: opacity .16s ease-out, transform .16s ease-out; }
   .arrow.show { opacity:1; transform: rotate(var(--r)) scale(1); }
   .arrow svg { width:100%; height:100%; filter: drop-shadow(0 3px 7px rgba(0,0,0,.55)); }
+  /* Пометки маркером (обводка/подчёркивание) — «рисуются» от руки. */
+  .marks { position:absolute; inset:0; pointer-events:none; z-index:22; }
+  .mark { position:absolute; opacity:0; transition:opacity .15s ease-out; }
+  .mark.show { opacity:1; }
+  .mark svg { width:100%; height:100%; overflow:visible;
+              filter: drop-shadow(0 2px 5px rgba(0,0,0,.4)); }
+  .mark .ink { fill:none; stroke:#ff2e2e; stroke-width:10; stroke-linecap:round;
+               stroke-linejoin:round;
+               stroke-dasharray: var(--len); stroke-dashoffset: var(--len);
+               animation: draw .5s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
   .green { position:absolute; opacity:0; border-radius:14px;
            background:rgba(52,199,89,.42); border:6px solid #2fbf57;
            box-shadow:0 0 0 3px rgba(255,255,255,.3) inset, 0 8px 26px rgba(0,0,0,.35);
@@ -232,6 +258,7 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <img id="img" alt="">
     <div class="green" id="green"></div>
     <div class="check" id="check">✅</div>
+    <div class="marks" id="marks"></div>
     <div class="arrows" id="arrows"></div>
     <div class="grid" id="grid"></div>
   </div>
@@ -271,6 +298,37 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     c.style.left=((x+w)*100)+"%"; c.style.top=((y+h/2)*100)+"%";
     c.classList.remove("show"); void c.offsetWidth; c.classList.add("show"); }
   function hideGreen(){ const g=document.getElementById("green"); if(g) g.classList.remove("show"); }
+  // Пометки маркером (как от руки): обводка-эллипс и подчёркивание.
+  const marksEl = document.getElementById("marks");
+  const ELLIPSE = '<svg viewBox="0 0 200 130"><path class="ink" d="M104 10 C 44 8 14 42 14 66 C 14 102 58 122 104 120 C 156 118 192 96 189 60 C 186 26 150 12 98 12"/></svg>';
+  const UNDER   = '<svg viewBox="0 0 220 34"><path class="ink" d="M6 20 C 55 10 120 28 160 16 C 180 11 200 15 214 12"/></svg>';
+  function _mark(x, y, wpx, hpx, svg) {
+    const iw = img.clientWidth || 1040;
+    const d = document.createElement("div"); d.className = "mark";
+    d.style.width = wpx + "px"; d.style.height = hpx + "px";
+    d.style.left = "calc(" + (x * 100) + "% - " + (wpx / 2) + "px)";
+    d.style.top = "calc(" + (y * 100) + "% - " + (hpx / 2) + "px)";
+    d.innerHTML = svg;
+    marksEl.appendChild(d);
+    const p = d.querySelector(".ink");
+    try { const len = p.getTotalLength(); p.style.setProperty("--len", len); } catch (e) {}
+    requestAnimationFrame(() => d.classList.add("show"));
+  }
+  function showCircle(x, y, r) {
+    const iw = img.clientWidth || 1040;
+    const wpx = (r && r > 0 ? r : 0.12) * iw * 2;
+    _mark(x, y, wpx, wpx * 0.66, ELLIPSE);
+  }
+  function showUnderline(x, y, w) {
+    const iw = img.clientWidth || 1040;
+    const wpx = (w && w > 0 ? w : 0.22) * iw;
+    _mark(x, y, wpx, wpx * 0.16, UNDER);
+  }
+  function clearMarks() {
+    marksEl.querySelectorAll(".mark").forEach(m => {
+      m.classList.remove("show"); setTimeout(() => m.remove(), 200);
+    });
+  }
   function enterCard(){ document.getElementById("wrap").classList.add("enter"); }
   function showHook(text){ document.getElementById("htext").textContent=text||"";
     document.getElementById("hook").classList.add("show"); }
@@ -300,16 +358,19 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     document.getElementById("wrap").classList.add("enter");
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
+    (D.marks||[]).forEach(m=>{ if(m[3]==='underline') showUnderline(m[0],m[1],m[2]);
+                               else showCircle(m[0],m[1],m[2]); });
     if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
   window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen,
-                  enterCard, showHook, hideHook };
+                  enterCard, showHook, hideHook, showCircle, showUnderline, clearMarks };
 </script>
 </body></html>"""
 
 
-def build_page(image_uri, grid=False, arrows=None, green=None):
-    data = {"image": image_uri, "grid": grid, "arrows": arrows or [], "green": green}
+def build_page(image_uri, grid=False, arrows=None, green=None, marks=None):
+    data = {"image": image_uri, "grid": grid, "arrows": arrows or [],
+            "green": green, "marks": marks or []}
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     return _PAGE.replace("__DATA__", payload)
 
@@ -394,7 +455,7 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         hook_text = "А ты знаешь ответ? У тебя пять секунд!"
     if no_hook:
         hook_text = ""
-    question_txt, expl_txt, spans, answer_txt, green = parse_narration(raw)
+    question_txt, expl_txt, spans, answer_txt, green, marks = parse_narration(raw)
 
     # Автоматика: если дан номер правильного (--correct N) и нет ручного тега —
     # сами находим боксы вариантов и красим нужный. Без координат и калибровки.
@@ -412,7 +473,9 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     # Режим калибровки: сохранить картинку с сеткой координат, стрелками и зелёной полоской.
     if grid:
         arrows = [(x, y, d) for _, _, x, y, d in spans]
-        page = build_page(image_uri, grid=True, arrows=arrows, green=list(green) if green else None)
+        gmarks = [(x, y, size, mk) for _, _, x, y, size, mk in marks]
+        page = build_page(image_uri, grid=True, arrows=arrows,
+                          green=list(green) if green else None, marks=gmarks)
         await screenshot_page(page, out, executable_path=chromium_path)
         print(f"🧭 Сетка координат готова: {out}")
         print("   Красные стрелки — где сейчас стоят твои координаты. Подгони цифры "
@@ -487,7 +550,12 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
     for cs, ce, x, y, d in spans:
         events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.showArrow({x},{y},'{d}')"))
         events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearArrows()"))
-    events.append((round(t_expl + ed, 3), "window.__tt.clearArrows()"))
+    # Пометки маркером (обводка/подчёркивание) — в такт голосу.
+    for cs, ce, x, y, size, mk in marks:
+        fn = "showUnderline" if mk == "underline" else "showCircle"
+        events.append((round(t_expl + (cs / L) * ed, 3), f"window.__tt.{fn}({x},{y},{size})"))
+        events.append((round(t_expl + (ce / L) * ed, 3), "window.__tt.clearMarks()"))
+    events.append((round(t_expl + ed, 3), "window.__tt.clearArrows(); window.__tt.clearMarks()"))
     total = t0 + qd + td_ + ed + ad
     # Зелёная полоска — ПОСЛЕ того как голос договорил ответ (конец реплики),
     # и держим её ещё пару секунд, чтобы зритель увидел.
