@@ -137,6 +137,47 @@ def synth_yandex(text: str, voice: str, api_key: str, folder_id: str,
     raise last
 
 
+def synth_yandex_v3(text: str, voice: str, api_key: str, role: str = "",
+                    retries: int = 6) -> bytes:
+    """Озвучка через Яндекс SpeechKit v3 (живые голоса с интонацией и ролями:
+    anton, alexander, kirill, marina, jane… роль good/neutral/friendly/strict).
+    Нужен пакет yandex-speechkit. Скорость — env YANDEX_SPEED."""
+    import io
+    import os
+    import time
+
+    import pydub
+    pydub.AudioSegment.converter = FFMPEG
+    pydub.AudioSegment.ffmpeg = FFMPEG
+    pydub.AudioSegment.ffprobe = FFMPEG
+    from speechkit import model_repository, configure_credentials, creds
+
+    configure_credentials(yandex_credentials=creds.YandexCredentials(api_key=api_key))
+    last = None
+    for attempt in range(retries):
+        try:
+            model = model_repository.synthesis_model()
+            model.voice = voice
+            if role:
+                model.role = role
+            try:
+                model.speed = float((os.environ.get("YANDEX_SPEED") or "1.0").strip())
+            except Exception:  # noqa: BLE001
+                pass
+            seg = model.synthesize(text, raw_format=False)   # pydub AudioSegment
+            buf = io.BytesIO()
+            seg.export(buf, format="mp3")
+            return buf.getvalue()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt < retries - 1:
+                wait = min(12, 3 * (attempt + 1))
+                print(f"      ⚠️ Яндекс v3 не ответил ({type(e).__name__}), жду {wait}с "
+                      f"и повторяю {attempt + 2}/{retries}…")
+                time.sleep(wait)
+    raise last
+
+
 # --------------------------------------------------------------------------- #
 #  Разбор текста билета на вопросы
 # --------------------------------------------------------------------------- #

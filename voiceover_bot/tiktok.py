@@ -42,6 +42,7 @@ from auto_quiz import (
     _find_chromium,
     _image_data_uri,
     synth_yandex,
+    synth_yandex_v3,
     synth_edge,
 )
 from make_video import read_text_any
@@ -331,7 +332,7 @@ async def record(page_html, events, total_dur, out_dir, executable_path=None):
 # --------------------------------------------------------------------------- #
 
 async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
-                think_pause, chromium_path, grid=False, correct=None):
+                think_pause, chromium_path, grid=False, correct=None, role="good"):
     image_uri = _image_data_uri(Path(image_path))
     question_txt, expl_txt, spans, answer_txt, green = parse_narration(read_text_any(speak_txt))
 
@@ -358,7 +359,19 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
               "по подписям сетки (0.0–1.0) и пересобери видео.")
         return
 
-    if engine == "yandex":
+    cache_rate = rate
+    if engine == "yandex3":
+        # Живые голоса v3 (anton, alexander, kirill, marina…) с интонацией-ролью.
+        import os
+        ya_key = os.environ.get("YANDEX_API_KEY", "").strip()
+        if not ya_key:
+            raise SystemExit("Для yandex3 задай YANDEX_API_KEY.")
+        ya_voice = voice if voice and not re.search(r"Neural|ru-RU-", voice) else "anton"
+        cache_rate = role or ""   # роль входит в ключ кэша
+
+        async def base_synth(t):
+            return await asyncio.to_thread(synth_yandex_v3, t, ya_voice, ya_key, role)
+    elif engine == "yandex":
         import os
         ya_key = os.environ.get("YANDEX_API_KEY", "").strip()
         ya_folder = os.environ.get("YANDEX_FOLDER_ID", "").strip()
@@ -372,7 +385,7 @@ async def build(image_path, out, speak_txt, voice, engine, rate, pitch,
         async def base_synth(t):
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, 3)
+    synth = make_cached_synth(base_synth, engine, voice, cache_rate, pitch, 3)
     tmp = Path(tempfile.mkdtemp(prefix="tiktok_"))
     print("⏳ Озвучиваю…")
 
@@ -432,8 +445,13 @@ def main():
     ap.add_argument("image", help="картинка вопроса (png/jpg/webp) — карточка со скрина")
     ap.add_argument("output", help="итоговый .mp4 (вертикаль 1080x1920)")
     ap.add_argument("--speak", required=True, help=".txt твоей озвучки (со стрелками)")
-    ap.add_argument("--engine", choices=["edge", "silero", "yandex"], default="yandex")
-    ap.add_argument("--voice", default="filipp")
+    ap.add_argument("--engine", choices=["edge", "silero", "yandex", "yandex3"],
+                    default="yandex3",
+                    help="yandex3 — живые голоса (anton и др.), по умолчанию")
+    ap.add_argument("--voice", default="anton", help="голос (для yandex3: anton, alexander, "
+                                                      "kirill, marina, jane…)")
+    ap.add_argument("--role", default="good", help="интонация для yandex3: good/neutral/"
+                                                   "friendly/strict (по голосу)")
     ap.add_argument("--rate", default="+0%")
     ap.add_argument("--pitch", default="+0Hz")
     ap.add_argument("--think", type=float, default=5.0, help="пауза «зритель думает», сек")
@@ -448,7 +466,7 @@ def main():
     asyncio.run(build(
         args.image, args.output, args.speak, args.voice, args.engine,
         args.rate, args.pitch, args.think, args.chromium_path, grid=args.grid,
-        correct=args.correct,
+        correct=args.correct, role=args.role,
     ))
 
 
