@@ -346,11 +346,7 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   function showGreen(x,y,w,h){ const g=document.getElementById("green");
     g.style.left=(x*100)+"%"; g.style.top=(y*100)+"%";
     g.style.width=(w*100)+"%"; g.style.height=(h*100)+"%";
-    g.classList.add("show");
-    // галочка ✅ у правого края зелёной полоски — выпрыгивает
-    const c=document.getElementById("check");
-    c.style.left=((x+w)*100)+"%"; c.style.top=((y+h/2)*100)+"%";
-    c.classList.remove("show"); void c.offsetWidth; c.classList.add("show"); }
+    g.classList.add("show"); }
   function hideGreen(){ const g=document.getElementById("green"); if(g) g.classList.remove("show"); }
   // Пометки маркером (как от руки): обводка-эллипс и подчёркивание.
   const marksEl = document.getElementById("marks");
