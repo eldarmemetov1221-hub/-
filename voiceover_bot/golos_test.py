@@ -76,12 +76,21 @@ def main() -> None:
 
     # --- v3 (новые, живые) ---
     print("\n── v3 (новые живые голоса, как на сайте Яндекса) ──")
+    # pydub (его тянет yandex-speechkit) должен знать путь к ffmpeg.
+    try:
+        import pydub
+        pydub.AudioSegment.converter = FFMPEG
+        pydub.AudioSegment.ffmpeg = FFMPEG
+        pydub.AudioSegment.ffprobe = FFMPEG
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from speechkit import model_repository, configure_credentials, creds
-    except ImportError:
-        print("  ⚠️ Пакет speechkit не установлен — поставь: pip install speechkit")
-        print("     (без него v3 не озвучится, но v1 выше уже готовы)")
-        print("\nОткрой папку golosa и послушай v1_*. Для v3 — поставь speechkit и запусти снова.")
+    except ImportError as e:
+        print(f"  ⚠️ Не удалось импортировать v3: {e}")
+        print("     Поставь официальный пакет и свежий protobuf:")
+        print("       pip install yandex-speechkit \"protobuf>=3.20,<5\"")
+        print("\nПока открой папку golosa и послушай v1_*.")
         return
 
     configure_credentials(yandex_credentials=creds.YandexCredentials(api_key=key))
