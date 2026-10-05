@@ -224,10 +224,11 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   /* Лёгкий зум фона (как у блогеров). */
   .bg { animation: kb 14s ease-in-out infinite alternate; }
   @keyframes kb { from{transform:scale(1);} to{transform:scale(1.12);} }
-  /* Карточка влетает с зумом. */
-  .wrap { opacity:0; transform: scale(.88) translateY(40px); }
-  .wrap.enter { animation: cardin .5s cubic-bezier(.2,.8,.2,1) forwards; }
-  @keyframes cardin { to{opacity:1; transform: scale(1) translateY(0);} }
+  /* Карточка ВИДНА с первого кадра (чтобы обложка не была чёрной);
+     влёт — лёгкий зум без прозрачности. */
+  .wrap { opacity:1; }
+  .wrap.enter { animation: cardin .45s cubic-bezier(.2,.8,.2,1); }
+  @keyframes cardin { 0%{transform: scale(.93);} 100%{transform: scale(1);} }
   /* Интро-хук — экран-интрига в начале. */
   /* Хук-экран в теме ПДД: тёмный фон, жёлто-чёрные полосы опасности сверху и
      снизу, большой предупреждающий знак, бейдж и текст-интрига. */
