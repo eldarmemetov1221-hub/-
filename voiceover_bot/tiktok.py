@@ -218,21 +218,34 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   .wrap.enter { animation: cardin .5s cubic-bezier(.2,.8,.2,1) forwards; }
   @keyframes cardin { to{opacity:1; transform: scale(1) translateY(0);} }
   /* Интро-хук — экран-интрига в начале. */
+  /* Хук-экран в теме ПДД: тёмный фон, жёлто-чёрные полосы опасности сверху и
+     снизу, большой предупреждающий знак, бейдж и текст-интрига. */
   .hook { position:fixed; inset:0; z-index:60; display:flex;
-          align-items:center; justify-content:center; padding:0 70px;
-          background: radial-gradient(120% 80% at 50% 40%, #1c2a4d 0%, #090d18 100%);
-          opacity:0; pointer-events:none; }
+          align-items:center; justify-content:center;
+          background: radial-gradient(130% 90% at 50% 30%, #17263f 0%, #070a12 100%);
+          opacity:0; pointer-events:none; overflow:hidden; }
   .hook.show { opacity:1; }
-  .hook .htext { color:#fff; font:900 92px/1.15 -apple-system,Arial,sans-serif;
-                 text-align:center; text-shadow:0 6px 30px rgba(0,0,0,.6);
-                 transform: scale(.7); opacity:0; }
-  .hook.show .htext { animation: hin .45s cubic-bezier(.2,1.4,.4,1) .05s forwards,
-                                 shake 1.8s ease-in-out .5s infinite; }
-  @keyframes hin { to{transform:scale(1); opacity:1;} }
-  @keyframes shake { 0%,100%{rotate:0deg;} 25%{rotate:-1.5deg;} 75%{rotate:1.5deg;} }
-  .hook .hbadge { position:absolute; top:16%; left:50%; transform:translateX(-50%);
-                  background:#ff3b30; color:#fff; font:800 40px Arial; padding:12px 30px;
-                  border-radius:40px; letter-spacing:1px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .hstripe { position:absolute; left:0; right:0; height:46px; opacity:.92;
+             background: repeating-linear-gradient(45deg,#ffcf2b 0 26px,#141821 26px 52px); }
+  .htop { top:0; } .hbot { bottom:0; }
+  .hcenter { display:flex; flex-direction:column; align-items:center;
+             gap:38px; padding:0 70px; text-align:center; }
+  .hbadge { background:#ff3b30; color:#fff; font:800 42px Arial; padding:12px 34px;
+            border-radius:44px; letter-spacing:2px; box-shadow:0 10px 30px rgba(0,0,0,.5);
+            opacity:0; transform:translateY(-14px); }
+  .hook.show .hbadge { animation: hbin .4s ease-out .05s forwards; }
+  @keyframes hbin { to{opacity:1; transform:translateY(0);} }
+  .hsign { width:300px; filter: drop-shadow(0 14px 34px rgba(230,30,30,.55));
+           opacity:0; transform:scale(.6); }
+  .hook.show .hsign { animation: hsin .5s cubic-bezier(.2,1.5,.4,1) .12s forwards,
+                                 signpulse 1.2s ease-in-out .7s infinite; }
+  @keyframes hsin { to{opacity:1; transform:scale(1);} }
+  @keyframes signpulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.07);} }
+  .hsign svg { width:100%; height:auto; display:block; }
+  .htext { color:#fff; font:900 80px/1.16 Arial,sans-serif;
+           text-shadow:0 6px 30px rgba(0,0,0,.6); opacity:0; transform:scale(.8); }
+  .hook.show .htext { animation: htin .45s cubic-bezier(.2,1.4,.4,1) .25s forwards; }
+  @keyframes htin { to{opacity:1; transform:scale(1);} }
   .timer { position:fixed; top:50%; left:50%; z-index:30;
            width:340px; height:340px; border-radius:50%;
            background:rgba(15,17,22,.72); border:12px solid #fff;
@@ -264,8 +277,20 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
   </div>
   <div class="timer" id="timer">5</div>
   <div class="hook" id="hook">
-    <div class="hbadge">⚠️ ТЕСТ ПДД</div>
-    <div class="htext" id="htext"></div>
+    <div class="hstripe htop"></div>
+    <div class="hcenter">
+      <div class="hbadge">⚠️ ТЕСТ ПДД</div>
+      <div class="hsign">
+        <svg viewBox="0 0 120 108">
+          <polygon points="60,7 115,101 5,101" fill="#fff" stroke="#e11919"
+                   stroke-width="9" stroke-linejoin="round"/>
+          <text x="60" y="90" text-anchor="middle" font-family="Arial"
+                font-size="64" font-weight="900" fill="#141414">?</text>
+        </svg>
+      </div>
+      <div class="htext" id="htext"></div>
+    </div>
+    <div class="hstripe hbot"></div>
   </div>
 <script id="payload" type="application/json">__DATA__</script>
 <script>
