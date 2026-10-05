@@ -360,8 +360,11 @@ _PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     _w.style.opacity = "1"; _w.style.transform = "none";
     (D.arrows||[]).forEach(p=>showArrow(p[0],p[1],p[2]));
     arrowsEl.querySelectorAll(".arrow").forEach(a=>a.classList.add("show"));
-    (D.marks||[]).forEach(m=>{ if(m[3]==='underline') showUnderline(m[0],m[1],m[2]);
-                               else showCircle(m[0],m[1],m[2]); });
+    // Пометки рисуем ТОЛЬКО после загрузки картинки (иначе их размер нулевой).
+    const drawMarks = () => (D.marks||[]).forEach(m=>{
+      if(m[3]==='underline') showUnderline(m[0],m[1],m[2]); else showCircle(m[0],m[1],m[2]); });
+    if (img.complete && img.clientWidth) drawMarks();
+    else img.addEventListener("load", () => setTimeout(drawMarks, 30));
     if (D.green) showGreen(D.green[0],D.green[1],D.green[2],D.green[3]);
   }
   window.__tt = { ready:true, showArrow, clearArrows, countdown, showGreen, hideGreen,
