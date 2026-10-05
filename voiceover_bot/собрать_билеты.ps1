@@ -25,7 +25,7 @@ param(
     [string]$Razbor = "",       # общий файл разбора с метками «### БИЛЕТ N» (по желанию)
     [string]$Voice  = "anton",
     [string]$Speed  = "",       # напр. 0.95 (медленнее) / 1.05 (быстрее)
-    [int]$Cooldown  = 30        # пауза между билетами, сек (остывание); 0 = без паузы
+    [int]$Cooldown  = 420       # пауза между билетами, сек (остывание); 420 = 7 минут, 0 = без паузы
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,7 +95,8 @@ for ($n = $From; $n -le $To; $n++) {
     if ($LASTEXITCODE -eq 0) { $done++ } else { $skip++; Write-Host "!! Билет $n с ошибкой" -ForegroundColor Red }
 
     if ($Cooldown -gt 0 -and $n -lt $To) {
-        Write-Host ("...пауза на остывание $Cooldown сек (Ctrl+C чтобы прервать)") -ForegroundColor DarkYellow
+        $mins = [math]::Round($Cooldown / 60, 1)
+        Write-Host ("...пауза на остывание $Cooldown сек (~$mins мин, Ctrl+C чтобы прервать)") -ForegroundColor DarkYellow
         Start-Sleep -Seconds $Cooldown
     }
 }
