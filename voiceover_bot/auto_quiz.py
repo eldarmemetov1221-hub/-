@@ -876,7 +876,19 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         print(f"🖼 Картинок подключено: {len(images)}")
 
     # Озвучка (с кэшем) — голос Дмитрия.
-    if engine == "silero":
+    cache_rate = rate
+    if engine == "yandex3":
+        import os
+        ya_key = os.environ.get("YANDEX_API_KEY", "").strip()
+        if not ya_key:
+            raise SystemExit("Для --engine yandex3 задай YANDEX_API_KEY")
+        ya_voice = voice if voice and not re.search(r"Neural|ru-RU-", voice) else "anton"
+        role = (os.environ.get("YANDEX_ROLE") or "good").strip()
+        cache_rate = role   # роль входит в ключ кэша
+
+        async def base_synth(t: str) -> bytes:
+            return await asyncio.to_thread(synth_yandex_v3, t, ya_voice, ya_key, role)
+    elif engine == "silero":
         import silero_tts
         speaker = voice if voice in silero_tts.SPEAKERS else silero_tts.MALE_DEFAULT
 
@@ -898,7 +910,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         async def base_synth(t: str) -> bytes:
             return await synth_edge(t, voice, rate, pitch)
 
-    synth = make_cached_synth(base_synth, engine, voice, rate, pitch, len(questions) * 2)
+    synth = make_cached_synth(base_synth, engine, voice, cache_rate, pitch, len(questions) * 2)
 
     print("⏳ Озвучиваю вопросы голосом Дмитрия…")
     tmp = Path(tempfile.mkdtemp(prefix="autoquiz_"))
@@ -980,7 +992,7 @@ def main() -> None:
         description="Авто-запись озвученного билета ПДД (без ручной записи экрана)")
     ap.add_argument("script", help=".txt с 20 вопросами (вопрос, варианты, ответ, пояснение)")
     ap.add_argument("output", nargs="?", default=None, help="итоговый .mp4")
-    ap.add_argument("--engine", choices=["edge", "silero", "yandex"], default="edge")
+    ap.add_argument("--engine", choices=["edge", "silero", "yandex", "yandex3"], default="edge")
     ap.add_argument("--voice", default="ru-RU-DmitryNeural",
                     help="голос: edge — ru-RU-DmitryNeural; silero — eugene/aidar")
     ap.add_argument("--rate", default="-10%",
