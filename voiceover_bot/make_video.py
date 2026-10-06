@@ -138,13 +138,17 @@ def make_cached_synth(base_synth, engine, voice, rate, pitch, total):
     CACHE_DIR.mkdir(exist_ok=True)
     counter = {"n": 0}
 
+    qtotal = max(1, total // 2)
+
     async def synth(text: str) -> bytes:
         counter["n"] += 1
+        qn = (counter["n"] + 1) // 2        # 2 реплики на вопрос -> номер вопроса
+        part = "вопрос" if counter["n"] % 2 == 1 else "ответ"
         f = CACHE_DIR / (_cache_key(engine, voice, rate, pitch, text) + ".audio")
         if f.exists() and f.stat().st_size > 0:
-            print(f"   🎙 {counter['n']}/{total} (из кэша)")
+            print(f"   🎙 вопрос {qn}/{qtotal} — {part} (из кэша)")
             return f.read_bytes()
-        print(f"   🎙 {counter['n']}/{total} озвучиваю…")
+        print(f"   🎙 вопрос {qn}/{qtotal} — озвучиваю {part}…")
         data = await base_synth(text)
         f.write_bytes(data)
         return data
