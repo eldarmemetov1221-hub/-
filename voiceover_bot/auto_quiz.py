@@ -817,13 +817,13 @@ def _resolve_images(questions: list[Question], images_dir: Path | None,
     dirs = [d for d in (images_dir, base_dir) if d]
     out: dict[int, str] = {}
     for i, q in enumerate(questions):
-        candidates = []
-        if q.image:
-            candidates.append(q.image)
-        for ext in (".jpg", ".jpeg", ".png", ".webp"):
-            candidates.append(f"{q.number}{ext}")
+        # Явная картинка («Картинка: …») ищется в обеих папках.
+        named = [q.image] if q.image else []
+        # Номерной подбор «<N>.jpg» — ТОЛЬКО из --images, чтобы случайные файлы
+        # «1.jpg» из папки билета (напр. с Рабочего стола) не прилипали к вопросу.
+        numbered = [f"{q.number}{ext}" for ext in (".jpg", ".jpeg", ".png", ".webp")]
         found = None
-        for name in candidates:
+        for name in named:
             for d in dirs:
                 p = (d / name)
                 if p.exists():
@@ -831,6 +831,12 @@ def _resolve_images(questions: list[Question], images_dir: Path | None,
                     break
             if found:
                 break
+        if not found and images_dir:
+            for name in numbered:
+                p = (images_dir / name)
+                if p.exists():
+                    found = p
+                    break
         if found:
             try:
                 out[i] = _image_data_uri(found)
