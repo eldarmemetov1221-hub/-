@@ -852,16 +852,17 @@ def _trim_tail_silence(path: Path, keep: float = 0.05) -> None:
     Нужно, чтобы зелёный загорался РОВНО на последнем слове, без задержки.
     Оставляет небольшой хвост keep сек, чтобы не срезать окончание слова."""
     try:
-        from pydub import AudioSegment, silence as _sil
-        AudioSegment.converter = FFMPEG
-        AudioSegment.ffmpeg = FFMPEG
-        AudioSegment.ffprobe = FFMPEG
-        seg = AudioSegment.from_file(str(path), format="mp3")
-        trail = _sil.detect_leading_silence(seg.reverse(), silence_threshold=-40.0, chunk_size=5)
-        end_ms = len(seg) - trail + int(keep * 1000)
-        end_ms = max(1, min(len(seg), end_ms))
-        if end_ms < len(seg) - 10:   # есть что срезать
-            seg[:end_ms].export(str(path), format="mp3")
+        out = path.with_suffix(".trim.mp3")
+        # Переворачиваем -> срезаем «переднюю» тишину (это была хвостовая) ->
+        # переворачиваем обратно. keep сек тишины оставляем, чтобы не резать слово.
+        af = ("areverse,silenceremove=start_periods=1:start_threshold=-40dB:"
+              f"start_silence={keep:.3f},areverse")
+        r = subprocess.run([FFMPEG, "-hide_banner", "-y", "-i", str(path),
+                            "-af", af, str(out)], capture_output=True)
+        if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            out.replace(path)
+        elif out.exists():
+            out.unlink()
     except Exception as e:  # noqa: BLE001
         print(f"   (тишину в конце не обрезал: {e})")
 
