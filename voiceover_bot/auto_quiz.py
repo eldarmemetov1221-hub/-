@@ -847,6 +847,22 @@ def _resolve_images(questions: list[Question], images_dir: Path | None,
     return out
 
 
+def _trim_tail_silence(path: Path, keep: float = 0.05) -> None:
+    """Обрезает хвостовую тишину у mp3 (Яндекс добавляет паузу в конце).
+    Нужно, чтобы зелёный загорался РОВНО на последнем слове, без задержки.
+    Оставляет небольшой хвост keep сек, чтобы не срезать окончание слова."""
+    try:
+        from pydub import AudioSegment, silence as _sil
+        seg = AudioSegment.from_file(str(path))
+        trail = _sil.detect_leading_silence(seg.reverse(), silence_threshold=-40.0, chunk_size=5)
+        end_ms = len(seg) - trail + int(keep * 1000)
+        end_ms = max(1, min(len(seg), end_ms))
+        if end_ms < len(seg) - 10:   # есть что срезать
+            seg[:end_ms].export(str(path), format="mp3")
+    except Exception as e:  # noqa: BLE001
+        print(f"   (тишину в конце не обрезал: {e})")
+
+
 def _split_at_question(prose: str) -> tuple[str, str]:
     """Делит прозу на «вопрос» и «остальное» по первому «?» (иначе по первой
     точке). Зелёный зажигаем на стыке."""
@@ -954,6 +970,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
         # 1) вопрос + разбор.
         a1 = await synth(intro_text)
         p1 = tmp / f"q{q.number:02d}a.mp3"; p1.write_bytes(a1)
+        _trim_tail_silence(p1)
         d1 = media_duration(str(p1)); clips.append((str(p1), d1))
         # 2) «Ответ …» — тут зажигаем ЗЕЛЁНЫЙ.
         d2 = 0.0
@@ -962,6 +979,7 @@ async def build(text: str, out: str, *, voice: str, rate: str, pitch: str,
             gaps.append(mid)
             a2 = await synth(answer_text)
             p2 = tmp / f"q{q.number:02d}b.mp3"; p2.write_bytes(a2)
+            _trim_tail_silence(p2)
             d2 = media_duration(str(p2)); clips.append((str(p2), d2))
         gaps.append(tail)
         # Зелёный — РОВНО на конце последнего слова «Ответ …» (без зазора before).
