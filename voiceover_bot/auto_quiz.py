@@ -853,7 +853,10 @@ def _trim_tail_silence(path: Path, keep: float = 0.05) -> None:
     Оставляет небольшой хвост keep сек, чтобы не срезать окончание слова."""
     try:
         from pydub import AudioSegment, silence as _sil
-        seg = AudioSegment.from_file(str(path))
+        AudioSegment.converter = FFMPEG
+        AudioSegment.ffmpeg = FFMPEG
+        AudioSegment.ffprobe = FFMPEG
+        seg = AudioSegment.from_file(str(path), format="mp3")
         trail = _sil.detect_leading_silence(seg.reverse(), silence_threshold=-40.0, chunk_size=5)
         end_ms = len(seg) - trail + int(keep * 1000)
         end_ms = max(1, min(len(seg), end_ms))
